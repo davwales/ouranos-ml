@@ -1,0 +1,13 @@
+fastapi
+transformers
+accelerate
+auto-gptq
+optimum
+diffusers[torch]
+omegaconf
+torch
+torchvision
+torchaudio
+bitsandbytes
+scipy
+git+https://github.com/sberbank-ai/Real-ESRGAN.git

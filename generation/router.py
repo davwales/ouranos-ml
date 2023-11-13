@@ -1,0 +1,34 @@
+import os
+from fastapi import APIRouter
+from .generator_factory import GeneratorFactory
+from .generator_registration import GeneratorRegistration
+from .generator_type import GeneratorType
+from .implementations import PipelineTextGenerator, ImageGenerator
+from .models import TextGenerationRequest, TextGenerationResponse, ImageGenerationRequest, ImageGenerationResponse
+
+router = APIRouter(prefix="/generation")
+
+generator_factory = GeneratorFactory(12, [
+    GeneratorRegistration(GeneratorType.TEXT_RP, 12, PipelineTextGenerator(
+        model_name="TheBloke/MythoMax-L2-13B-GPTQ", 
+        model_revision="gptq-4bit-128g-actorder_True")),
+
+    GeneratorRegistration(GeneratorType.IMAGE_REALISM, 9, ImageGenerator(
+        checkpoint=os.path.relpath("nn_models/realisticVisionV51_v51VAE.safetensors"),
+        upscaler="weights/RealESRGAN_x4.pth"
+    ))
+])
+
+@router.post("/text")
+def text(request: TextGenerationRequest):
+    print("Generating a completion...")
+    generator: PipelineTextGenerator = generator_factory.get_generator(request.type)
+    tokens, content = generator.generate(request.context, request.instructions, request.response_start, request.extra_stop_words)
+    return TextGenerationResponse(type=request.type, tokens=tokens, content=content)
+
+@router.post("/image")
+def image(request: ImageGenerationRequest):
+    print("Generating an image...")
+    generator: ImageGenerator = generator_factory.get_generator(request.type)
+    seed, path = generator.generate(request.prompt, request.negative_prompt, request.width, request.height, request.num_inference_steps, request.seed, request.file_name)
+    return ImageGenerationResponse(seed=seed, file_path=path)
