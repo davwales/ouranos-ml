@@ -1,5 +1,6 @@
 import os
 from fastapi import APIRouter
+from fastapi_utils.tasks import repeat_every
 from .generator_factory import GeneratorFactory
 from .generator_registration import GeneratorRegistration
 from .generator_type import GeneratorType
@@ -24,6 +25,10 @@ def text(request: TextGenerationRequest):
     print("Generating a completion...")
     generator: PipelineTextGenerator = generator_factory.get_generator(request.type)
     tokens, content = generator.generate(request.context, request.instructions, request.response_start, request.extra_stop_words)
+    if not content:
+        print("Retrying generation...")
+        request.instructions.append("System: You must respond to this situation.")
+        tokens, content = generator.generate(request.context, request.instructions, request.response_start, request.extra_stop_words)
     return TextGenerationResponse(type=request.type, tokens=tokens, content=content)
 
 @router.post("/image")
@@ -32,3 +37,9 @@ def image(request: ImageGenerationRequest):
     generator: ImageGenerator = generator_factory.get_generator(request.type)
     seed, path = generator.generate(request.prompt, request.negative_prompt, request.width, request.height, request.num_inference_steps, request.seed, request.file_name)
     return ImageGenerationResponse(seed=seed, file_path=path)
+
+@router.on_event("startup")
+@repeat_every(seconds=60)
+def purge_unused_generators():
+    print("Purging unused generators...")
+    generator_factory.purge_unused(seconds=300)

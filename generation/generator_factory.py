@@ -1,4 +1,6 @@
-import os
+from datetime import datetime
+import torch
+import gc
 from .generator_registration import GeneratorRegistration
 from .generator_type import GeneratorType
 
@@ -15,10 +17,23 @@ class GeneratorFactory():
     def get_generator(self, type: GeneratorType):
         loaded_reservation = self.__find_reservation(type, self.loaded_generators)
         if loaded_reservation is not None:
+            loaded_reservation.last_used = datetime.utcnow()
             return loaded_reservation.generator
         print(f"Loading {type} generator...")
         reservation = self.__load_generator(type)
+        reservation.last_used = datetime.utcnow()
         return reservation.generator
+    
+    def purge_unused(self, seconds):
+        release_any = False
+        for reservation in self.loaded_generators:
+            delta_minutes = (datetime.utcnow() - reservation.last_used).total_seconds()
+            if delta_minutes >= seconds:
+                self.__unload_generator(reservation)
+                release_any = True
+        if release_any:
+            torch.cuda.empty_cache()
+            gc.collect()
         
     def __load_generator(self, type: GeneratorType):
         reservation = self.__find_reservation(type, self.known_generators)
@@ -56,3 +71,5 @@ class GeneratorFactory():
             amount_freed += g.memory_reservation
             if amount_freed >= amount:
                 break
+        torch.cuda.empty_cache()
+        gc.collect()
