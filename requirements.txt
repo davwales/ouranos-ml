@@ -3,6 +3,7 @@ fastapi-utils
 transformers
 accelerate
 auto-gptq
+autoawq
 optimum
 diffusers[torch]
 omegaconf

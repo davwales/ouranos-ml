@@ -1,19 +1,19 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, pipeline
+from awq import AutoAWQForCausalLM
+from transformers import AutoTokenizer, GenerationConfig
 from accelerate.utils import release_memory
+from ..support import PromptSupport
 from ..base_generator import BaseGenerator
-from ..support.prompt_support import PromptSupport
 import torch
 
-class PipelineTextGenerator(BaseGenerator):
+class AWQTextGenerator(BaseGenerator):
     model_name: str
     model_revision: str
     max_tokens: int
 
     model: any
-    pipe: any
-    prompt_support: PromptSupport
     generation_config: GenerationConfig
     tokenizer: any
+    prompt_support: PromptSupport
 
     def __init__(self, model_name: str, model_revision: str = "main", max_tokens: int = 1250):
         self.model_name = model_name
@@ -22,35 +22,24 @@ class PipelineTextGenerator(BaseGenerator):
         self.generation_config = GenerationConfig(
             min_new_tokens=16,
             max_new_tokens=128,
-            do_sample=True,
-            use_cache=True,
-            temperature=1.31,
-            top_p=0.29,
-            top_k=72,
-            repetition_penalty=1.09
+            do_sample=True
         )
         
     def load_model(self):
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=True)
         self.prompt_support = PromptSupport(self.tokenizer, self.max_tokens)
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = AutoAWQForCausalLM.from_quantized(
             self.model_name,
-            device_map="auto",
+            revision=self.model_revision,
+            fuse_layers=True,
             trust_remote_code=False,
-            revision=self.model_revision)
-        self.pipe = pipeline(
-            "text-generation",
-            model=self.model,
-            tokenizer=self.tokenizer,
-            device_map="auto")
+            safetensors=True)
         
     def unload_model(self):
         release_memory(self.tokenizer)
         release_memory(self.model)
-        release_memory(self.pipe)
         self.model = None
         self.tokenizer = None
-        self.pipe = None
         self.prompt_support = None
 
     def generate(self, context: list[str], instruction: list[str], response_start: str, extra_stop_words: list[str]):
@@ -60,9 +49,9 @@ class PipelineTextGenerator(BaseGenerator):
         prompt = self.prompt_support.create_prompt(context, instruction, response_start)
         self.generation_config.stopping_criteria = self.prompt_support.get_stopping_criteria(extra_stop_words)
 
-        tokens = self.tokenizer(prompt, return_tensors='pt').input_ids.shape[1]
+        input_ids = self.tokenizer(prompt, return_tensors='pt').input_ids.cuda()
         with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False):
-            output = self.pipe(prompt, generation_config=self.generation_config)
+            output = self.model.generate(inputs=input_ids, generation_config=self.generation_config)
 
-        raw_output = output[0]["generated_text"]
-        return (tokens, self.prompt_support.clean_response(prompt, raw_output))
+        raw_output = self.tokenizer.decode(output[0])
+        return (input_ids.shape[1], self.prompt_support.clean_response(prompt, raw_output))

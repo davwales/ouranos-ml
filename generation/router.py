@@ -11,8 +11,7 @@ router = APIRouter(prefix="/generation")
 
 generator_factory = GeneratorFactory(12, [
     GeneratorRegistration(GeneratorType.TEXT_RP, 12, PipelineTextGenerator(
-        model_name="TheBloke/MythoMax-L2-13B-GPTQ", 
-        model_revision="gptq-4bit-128g-actorder_True")),
+        model_name="TheBloke/Utopia-13B-AWQ")),
 
     GeneratorRegistration(GeneratorType.IMAGE_REALISM, 9, ImageGenerator(
         checkpoint=os.path.relpath("nn_models/realisticVisionV51_v51VAE.safetensors"),
@@ -25,10 +24,6 @@ def text(request: TextGenerationRequest):
     print("Generating a completion...")
     generator: PipelineTextGenerator = generator_factory.get_generator(request.type)
     tokens, content = generator.generate(request.context, request.instructions, request.response_start, request.extra_stop_words)
-    if not content:
-        print("Retrying generation...")
-        request.instructions.append("System: You must respond to this situation.")
-        tokens, content = generator.generate(request.context, request.instructions, request.response_start, request.extra_stop_words)
     return TextGenerationResponse(type=request.type, tokens=tokens, content=content)
 
 @router.post("/image")
