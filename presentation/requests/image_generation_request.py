@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from ..generator_type import GeneratorType
+from domain.generation import GeneratorType
 
 class ImageGenerationRequest(BaseModel):
     type: GeneratorType

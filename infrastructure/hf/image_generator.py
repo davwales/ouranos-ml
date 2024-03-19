@@ -5,7 +5,7 @@ import time
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 from RealESRGAN import RealESRGAN
 from accelerate.utils import release_memory
-from ..base_generator import BaseGenerator
+from application.generation import BaseGenerator
 
 class ImageGenerator(BaseGenerator):
     checkpoint: str

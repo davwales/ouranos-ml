@@ -1,17 +1,17 @@
 import os
 from fastapi import APIRouter
 from fastapi_utils.tasks import repeat_every
-from .generator_factory import GeneratorFactory
-from .generator_registration import GeneratorRegistration
-from .generator_type import GeneratorType
-from .implementations import PipelineTextGenerator, ImageGenerator
-from .models import TextGenerationRequest, TextGenerationResponse, ImageGenerationRequest, ImageGenerationResponse
+from application.generation import GeneratorFactory
+from domain.generation import GeneratorRegistration, GeneratorType
+from infrastructure.hf import PipelineTextGenerator, ImageGenerator
+from .requests import TextGenerationRequest, ImageGenerationRequest
+from .responses import TextGenerationResponse, ImageGenerationResponse
 
 router = APIRouter(prefix="/generation")
 
 generator_factory = GeneratorFactory(12, [
     GeneratorRegistration(GeneratorType.TEXT_RP, 12, PipelineTextGenerator(
-        model_name="TheBloke/Utopia-13B-AWQ")),
+        model_name="TheBloke/LLaMA2-13B-Tiefighter-AWQ")),
 
     GeneratorRegistration(GeneratorType.IMAGE_REALISM, 9, ImageGenerator(
         checkpoint=os.path.relpath("nn_models/realisticVisionV51_v51VAE.safetensors"),

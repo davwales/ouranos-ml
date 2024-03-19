@@ -1,7 +1,6 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, pipeline
 from accelerate.utils import release_memory
-from ..base_generator import BaseGenerator
-from ..support.prompt_support import PromptSupport
+from application.generation import BaseGenerator, PromptSupport
 import torch
 
 class PipelineTextGenerator(BaseGenerator):

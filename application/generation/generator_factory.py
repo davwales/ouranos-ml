@@ -1,8 +1,7 @@
 from datetime import datetime
 import torch
 import gc
-from .generator_registration import GeneratorRegistration
-from .generator_type import GeneratorType
+from domain.generation import GeneratorRegistration, GeneratorType
 
 class GeneratorFactory():
     allocated_memory: int = 0

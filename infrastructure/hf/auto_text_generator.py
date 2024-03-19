@@ -1,7 +1,7 @@
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from accelerate.utils import release_memory
-from ..base_generator import BaseGenerator
-from ..support.prompt_support import PromptSupport
+from domain.generation import BaseGenerator
+from application.generation import PromptSupport
 import torch
 
 class AutoTextGenerator(BaseGenerator):

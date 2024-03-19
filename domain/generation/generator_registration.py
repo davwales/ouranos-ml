@@ -1,5 +1,5 @@
 from .generator_type import GeneratorType
-from .base_generator import BaseGenerator
+from application.generation import BaseGenerator
 from datetime import datetime
 
 class GeneratorRegistration:

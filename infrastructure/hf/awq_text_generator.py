@@ -1,8 +1,7 @@
 from awq import AutoAWQForCausalLM
 from transformers import AutoTokenizer, GenerationConfig
 from accelerate.utils import release_memory
-from ..support import PromptSupport
-from ..base_generator import BaseGenerator
+from application.generation import PromptSupport, BaseGenerator
 import torch
 
 class AWQTextGenerator(BaseGenerator):
