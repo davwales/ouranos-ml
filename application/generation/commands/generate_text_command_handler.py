@@ -27,7 +27,7 @@ class GenerateTextCommandHandler:
         model_query = LoadModelQuery(self.command.model_name)
         prompt = self._get_prompt(latest_message)
         model, streamer = model_query.load_model()
-        conversation = ConversationChain(llm=model, prompt=prompt, verbose=True, memory=memory)
+        conversation = ConversationChain(llm=model, prompt=prompt, memory=memory)
 
         thread = Thread(
             target=conversation.predict,
