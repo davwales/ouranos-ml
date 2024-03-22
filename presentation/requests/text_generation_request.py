@@ -1,9 +1,7 @@
 from pydantic import BaseModel
-from domain.generation import GeneratorType
+from domain.generation import Message
 
 class TextGenerationRequest(BaseModel):
-    type: GeneratorType
-    context: list[str]
-    instructions: list[str]
-    response_start: str
-    extra_stop_words: list[str] = []
+    messages: list[Message]
+    human_name: str = "Human"
+    ai_name: str = "AI"

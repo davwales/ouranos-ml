@@ -1,2 +1,2 @@
-from .generator_registration import *
-from .generator_type import *
+from .message import *
+from .message_role import *
