@@ -61,7 +61,7 @@ class GenerateTextQuery:
         memory = ConversationBufferMemory(chat_memory=history, human_prefix=self.human_name, ai_prefix=self.ai_name)
 
         prompt = self._get_prompt()
-        conversation = ConversationChain(llm=self.hf_pipe, prompt=prompt, memory=memory, verbose=True)
+        conversation = ConversationChain(llm=self.hf_pipe, prompt=prompt, memory=memory)
 
         thread = Thread(
             target=conversation.predict,
