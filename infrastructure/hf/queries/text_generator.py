@@ -1,6 +1,5 @@
-from typing import Any, Dict, Generator
+from typing import Any, Generator
 from threading import Thread
-from tokenizers import AddedToken
 from transformers import pipeline, TextIteratorStreamer, AutoTokenizer, PreTrainedTokenizerBase
 from accelerate.utils import release_memory
 
@@ -13,7 +12,8 @@ class TextGenerator:
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_id,
             max_length=2000,
-            truncation=True)
+            truncation=True,
+            use_fast=True)
         
         self.streamer = TextIteratorStreamer(
             self.tokenizer, # type: ignore
@@ -26,7 +26,9 @@ class TextGenerator:
             tokenizer=self.tokenizer,
             streamer=self.streamer,
             device_map="cuda:0",
-            trust_remote_code=False)
+            trust_remote_code=False,
+            batch_size=4,
+            do_sample=True)
         
         return self
 
@@ -46,7 +48,12 @@ class TextGenerator:
             target=self.pipe,
             kwargs={
                 "text_inputs": prompt,
-                "max_new_tokens": 64
+                "min_new_tokens": 16,
+                "max_new_tokens": 128,
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "top_k": 40,
+                "repetition_penalty": 1.1
             })
 
         thread.start()
