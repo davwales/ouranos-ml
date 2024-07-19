@@ -16,26 +16,31 @@ chatml_template = """
 """
 
 alpaca_template = """
-{{ (messages|selectattr('role', 'equalto', 'system')|list|last).content|trim if (messages|selectattr('role', 'equalto', 'system')|list) else '' }}
+{% if messages[0]['role'] == 'system' %}
+    {% set system_message = messages[0]['content'] | trim + '\n\n' %}
+    {% set messages = messages[1:] %}
+{% else %}
+    {% set system_message = '' %}
+{% endif %}
 
+{{ bos_token + system_message }}
 {% for message in messages %}
-{% if message['role'] == 'user' %}
-### Instruction:
-{{ message['content']|trim -}}
-{% if not loop.last %}
+    {% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}
+        {{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}
+    {% endif %}
 
-{% endif %}
-{% elif message['role'] == 'assistant' %}
-### Response:
-{{ message['content']|trim -}}
-{% if not loop.last %}
-
-{% endif %}
-{% endif %}
+    {% if message['role'] == 'user' %}
+        {{ '### Instruction:\n' + message['content'] | trim + '\n\n' }}
+    {% elif message['role'] == 'assistant' %}
+        {{ '### Response:\n' + message['content'] | trim + eos_token + '\n\n' }}
+    {% endif %}
 {% endfor %}
-{% if add_generation_prompt and messages[-1]['role'] != 'assistant' %}
-### Response:
+
+{% if add_generation_prompt %}
+    {{ '### Instruction:\n' }}
 {% endif %}
+
+### Response: 
 """
 
 llama3_template = """
@@ -55,9 +60,9 @@ vicuna_template = """
 def text(request: TextGenerationRequest):
     print("Generating text...")
 
-    model = "TheBloke/OpenHermes-2.5-Mistral-7B-GPTQ"
+    model = "TheBloke/Loyal-Macaroni-Maid-7B-GPTQ"
 
-    query = GenerateTextQuery(model, chatml_template, request.messages)
+    query = GenerateTextQuery(model, alpaca_template, request.messages)
     command_handler = GenerateTextQueryHandler(query)
 
     return StreamingResponse(command_handler.generate_text(), media_type="text/plain")

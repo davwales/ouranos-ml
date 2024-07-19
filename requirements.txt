@@ -5,3 +5,4 @@ torch
 optimum
 auto-gptq
 accelerate
+autoawq
