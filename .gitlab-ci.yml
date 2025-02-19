@@ -3,5 +3,5 @@ build:
   variables:
     IMAGE_NAME: "ouranos-ml"
   script:
-    - docker build -t "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}" .
-    - docker push "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}"
+    - docker build -t "$CI_REGISTRY_IMAGE/${IMAGE_NAME}" .
+    - docker push "$CI_REGISTRY_IMAGE/${IMAGE_NAME}"
