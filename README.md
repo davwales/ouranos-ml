@@ -25,5 +25,11 @@ If you wish to pull the latest container built for the repository, you can follo
 3. Run the image.
     1. `docker run --gpus=all -d -p 8000:8000 --name ouranos-ml registry.gitlab.com/talos8645929/ouranos-ml:latest`
 
+If you wish to run an experiment.
+
+1. Create your experiment within the "experiments" directory.
+2. Execute your experiment.
+    1. `python -m experiments.plutus.forecasting.experiment`
+
 ## Contributing
 At this point in time I am not interested in having additional contributors. 

@@ -10,3 +10,4 @@ accelerate
 # autoawq
 uvicorn
 numpy<2
+scikit-learn

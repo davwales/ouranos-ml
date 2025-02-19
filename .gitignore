@@ -160,8 +160,6 @@ cython_debug/
 #.idea/
 
 debug.ps1
-weights/*
-nn_models/*
-output/images/*
+datasets/*
 
 !**/.gitkeep
