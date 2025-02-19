@@ -1,9 +1,8 @@
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from application.generation.queries import GenerateTextQuery, GenerateTextQueryHandler
-
-from .requests import TextGenerationRequest
+from ..schemas import TextGenerationRequest
+from src.application.queries import generate_text
 
 router = APIRouter(prefix="/generation")
 
@@ -59,10 +58,5 @@ vicuna_template = """
 @router.post("/text")
 def text(request: TextGenerationRequest):
     print("Generating text...")
-
     model = "TheBloke/Loyal-Macaroni-Maid-7B-GPTQ"
-
-    query = GenerateTextQuery(model, alpaca_template, request.messages)
-    command_handler = GenerateTextQueryHandler(query)
-
-    return StreamingResponse(command_handler.generate_text(), media_type="text/plain")
+    return StreamingResponse(generate_text(model, alpaca_template, request.messages), media_type="text/plain")

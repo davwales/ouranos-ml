@@ -7,6 +7,6 @@ transformers
 optimum
 auto-gptq
 accelerate
-autoawq
+# autoawq
 uvicorn
 numpy<2

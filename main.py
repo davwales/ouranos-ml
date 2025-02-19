@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from presentation.generation import router as generation_router
+from src.api.routes.generation import router as generation_router
 
 print("Starting api...")
 app = FastAPI()
