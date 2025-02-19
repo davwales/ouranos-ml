@@ -10,9 +10,12 @@ build:
     - docker build -t "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}" .
     - docker push "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}"
   rules:
-    changes:
-      - Dockerfile
-      - requirements.txt
-      - main.py
-      - src/*
-      - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - Dockerfile
+        - requirements.txt
+        - main.py
+        - src/**/*
+        - .gitlab-ci.yml
+      when: always
+    - when: never
