@@ -4,6 +4,14 @@ build:
     - docker:dind
   variables:
     IMAGE_NAME: "ouranos-ml"
+    before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
     - docker build -t "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}" .
     - docker push "${CI_REGISTRY_IMAGE}/${IMAGE_NAME}"
+  rules:
+    changes:
+      - Dockerfile
+      - requirements.txt
+      - main.py
+      - src/*
