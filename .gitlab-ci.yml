@@ -1,0 +1,21 @@
+image: python:latest
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip
+
+before_script:
+  - python --version ; pip --version
+  - pip install virtualenv
+  - virtualenv venv
+  - source venv/bin/activate
+
+build:
+  variables:
+    IMAGE_NAME: "ouranos-ml"
+  script:
+    - docker build -t "${IMAGE_NAME}" .
+    - docker push "${IMAGE_NAME}"
