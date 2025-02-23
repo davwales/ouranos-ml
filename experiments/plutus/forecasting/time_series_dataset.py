@@ -3,7 +3,7 @@ import torch
 class TimeSeriesDataset(torch.utils.data.Dataset):
     def __init__(self, x, y):
         self.x = torch.FloatTensor(x)
-        self.y = torch.FloatTensor(y).unsqueeze(1)
+        self.y = torch.FloatTensor(y)
     
     def __len__(self):
         return len(self.x)

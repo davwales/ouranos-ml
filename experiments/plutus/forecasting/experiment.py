@@ -1,120 +1,142 @@
 import pandas as pd
-import numpy as np
 import torch
-from sklearn.preprocessing import MinMaxScaler
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import r2_score
 
 from .model import Model
 from .time_series_dataset import TimeSeriesDataset
 from experiments.harness import Harness
+from experiments.utils.genetic_tuner import GeneticTuner
+from experiments.utils.data_splitters import split_by_bucket
+from experiments.utils.sequences import SequenceConfig, SequenceProcessor
 
-def create_train_val_test_split(df, val_ratio=0.1, test_ratio=0.1):
-    unique_buckets = sorted(df['bucket'].unique())
-    n_buckets = len(unique_buckets)
-    
-    # Calculate split indices
-    test_idx = int(n_buckets * (1 - test_ratio))
-    val_idx = int(n_buckets * (1 - test_ratio - val_ratio))
-    
-    # Split buckets
-    train_buckets = unique_buckets[:val_idx]
-    val_buckets = unique_buckets[val_idx:test_idx]
-    test_buckets = unique_buckets[test_idx:]
-    
-    # Create masks
-    train_mask = df['bucket'].isin(train_buckets)
-    val_mask = df['bucket'].isin(val_buckets)
-    test_mask = df['bucket'].isin(test_buckets)
-    
-    return df[train_mask], df[val_mask], df[test_mask]
+def create_harness(input_size, prediction_horizon, output_size, params):
+    print(f'Creating harness with params: {params}')
+    model = Model(
+        input_size=input_size, 
+        hidden_size=params['hidden_size'], 
+        prediction_horizon=prediction_horizon,
+        output_size=output_size,
+        num_layers=params['num_layers'], 
+        dropout=params['dropout']
+    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=params['learning_rate'])
+    loss_fn = torch.nn.L1Loss()
+    return Harness(model, optimizer, loss_fn)
 
-def prepare_samples(df, sequence_length=10, prediction_horizon=1):
-    df = df.sort_values(['bucket', 'symbolId'])
-    unique_symbols = df['symbolId'].unique()
-
-    symbol_scalers = {}
-    sequences = []
-    targets = []
+def plot_predictions(y_test, predictions, feature_names=None, sample=1000):
+    n_features = y_test.shape[-1]
+    if feature_names is None:
+        feature_names = [f'Feature {i+1}' for i in range(n_features)]
     
-    for symbol in unique_symbols:
-        symbol_data = df[df['symbolId'] == symbol].sort_values('bucket')
-        
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        price_scaler = scaler.fit(symbol_data[['minPrice', 'maxPrice', 'averagePrice']])
-        
-        # Scale volume separately (using log transformation for better distribution)
-        volume_scaler = MinMaxScaler(feature_range=(0, 1))
-        symbol_data['scaled_volume'] = volume_scaler.fit_transform(
-            np.log1p(symbol_data[['volume']])
-        )
-        
-        # Scale prices
-        scaled_prices = price_scaler.transform(
-            symbol_data[['minPrice', 'maxPrice', 'averagePrice']]
-        )
-        
-        # Combine scaled features
-        scaled_data = np.hstack((
-            scaled_prices,
-            symbol_data['scaled_volume'].values.reshape(-1, 1)
-        ))
-        
-        # Store scalers
-        symbol_scalers[symbol] = {
-            'price': price_scaler,
-            'volume': volume_scaler
-        }
-
-        # Create sequences for this symbol
-        for i in range(len(scaled_data) - sequence_length - prediction_horizon + 1):
-            sequence = scaled_data[i:(i + sequence_length)]
-            sequences.append(sequence)
-            
-            # Use average price as target
-            target = symbol_data.iloc[i + sequence_length + prediction_horizon - 1]['averagePrice']
-            targets.append(target)
+    fig, axes = plt.subplots(1, n_features, figsize=(15, 5))
+    if n_features == 1:
+        axes = [axes]
     
-    return np.array(sequences), np.array(targets), symbol_scalers
+    for i, ax in enumerate(axes):
+        actual = y_test[:, :, i]
+        pred = predictions[:, :, i]
+        mask = np.random.choice(actual.shape[0], sample, replace=False)
+
+        ax.scatter(actual[mask], pred[mask], alpha=0.5)
+
+        min_val = min(actual[mask].min(), pred[mask].min())
+        max_val = max(actual[mask].max(), pred[mask].max())
+        ax.plot([min_val, max_val], [min_val, max_val], 'k--', label='Perfect Prediction')
+        
+        r2 = r2_score(actual[mask], pred[mask])
+        ax.text(0.05, 0.95, f'R² = {r2:.3f}\n', transform=ax.transAxes, verticalalignment='top')
+        
+        ax.set_title(f'{feature_names[i]}\nPredicted vs Actual')
+        ax.set_xlabel('Actual')
+        ax.set_ylabel('Predicted')
+        ax.grid(True, alpha=0.3)
+        
+        if i == n_features-1:
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    
+    plt.tight_layout()
+    return fig
 
 if __name__ == "__main__":
     # Expected training data columns:
     # symbolId,bucket,minPrice,maxPrice,averagePrice,volume
-
     print("Loading data...")
-    df = pd.read_csv('datasets/plutus.trades.training.csv')
+    df = pd.read_csv('datasets/plutus.trades.training.daily.csv')
     
     # It can be helpful during development to limit the number of symbols being processed.
-    unique_symbols = df['symbolId'].unique()
-    df = df[df['symbolId'].isin(unique_symbols[:100])]
+    # unique_symbols = df['symbolId'].unique()
+    # df = df[df['symbolId'].isin(unique_symbols[:100])]
 
     print("Splitting data...")
-    train_df, val_df, test_df = create_train_val_test_split(df)
+    train_df, val_df, test_df = split_by_bucket(df, bucket_field="bucket")
 
-    x_train, y_train, scalers = prepare_samples(train_df, sequence_length=10, prediction_horizon=1)
+    base_path = "experiments/plutus/forecasting"
+    features=['averagePrice', 'minPrice', 'maxPrice', "volume"]
+    prediction_horizon = 1
+    param_space = {
+        'learning_rate': [0.0001, 0.001, 0.005, 0.01, 0.05, 0.1],
+        'hidden_size': [32, 64, 128, 256, 512],
+        'num_layers': [1, 2, 3],
+        'dropout': [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
+    }
+    sequence_config = SequenceConfig(
+        sequence_length=30,
+        prediction_horizon=prediction_horizon,
+        feature_columns=features,
+        target_columns=features,
+        group_by_column='symbolId',
+        sort_by_column='bucket',
+        sequence_transform=lambda seq: seq / np.max(seq, axis=0),
+        target_transform=lambda target, seq: np.clip(target / np.max(seq, axis=0), 0.0, 1.5)
+    )
+
+    sequence_processor = SequenceProcessor(sequence_config)
+
+    x_train, y_train = sequence_processor.create_sequences(train_df)
     train_dataset = TimeSeriesDataset(x_train, y_train)
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=64, shuffle=True, num_workers=4)
     print(f'Training data shape: {x_train.shape}, {y_train.shape}')
 
-    x_val, y_val, _ = prepare_samples(val_df, sequence_length=10, prediction_horizon=1)
+    x_val, y_val = sequence_processor.create_sequences(val_df)
     val_dataset = TimeSeriesDataset(x_val, y_val)
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=64, shuffle=False, num_workers=4)
     print(f'Validation data shape: {x_val.shape}, {y_val.shape}')
 
-    x_test, y_test, _ = prepare_samples(test_df, sequence_length=10, prediction_horizon=1)
+    x_test, y_test = sequence_processor.create_sequences(test_df)
     test_dataset = TimeSeriesDataset(x_test, y_test)
     test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=64, shuffle=False)
     print(f'Test data shape: {x_test.shape}, {y_test.shape}')
-    
+
     print("Training model...")
-    model = Model(x_train.shape[2], hidden_size=128)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    loss_fn = torch.nn.MSELoss()
-    harness = Harness(model, optimizer, loss_fn)
-    harness.train(train_loader, val_loader, epochs=10)
+    tuner = GeneticTuner(
+        population_size=10,
+        param_space=param_space,
+        harness_creator=lambda params: create_harness(x_train.shape[2], prediction_horizon, y_train.shape[2], params)
+    )
+
+    params = tuner.evolve(
+        generations=5,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        train_epochs=10,
+        early_stopping=3,
+        file=f'{base_path}/params.json'
+    )
+
+    print(f'Using params: {params}')
+    harness = create_harness(x_train.shape[2], prediction_horizon, y_train.shape[2], params)
+    harness.train(train_loader, val_loader, epochs=1000, early_stopping=10)
 
     print("Testing model...")
     test_loss = harness.validate(test_loader)
     print(f'Test Loss: {test_loss:.4f}')
 
-    for i in range(min(10, len(x_test))):
-        prediction = harness.predict(torch.FloatTensor(x_test[i]).unsqueeze(0))[0][0]
-        print(f'Predicted: {prediction}, Actual: {y_test[i]}')
+    print("Saving model...")
+    harness.save_model(f'{base_path}/model.pth')
+
+    predictions = harness.predict(torch.FloatTensor(x_test))
+    fig = plot_predictions(y_test, predictions, features)
+    plt.savefig(f'{base_path}/predictions.png')
+    plt.show()
