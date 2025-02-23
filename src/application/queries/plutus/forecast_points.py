@@ -1,19 +1,23 @@
 from src.domain.plutus.forecast_point import PlutusForecastPoint
 from src.infrastructure.plutus.forecast_generator import ForecastGenerator
 
-def forecast_points(points: list[PlutusForecastPoint], numPredictions: int) -> list[PlutusForecastPoint]:
+def forecast_points(sequences: list[list[PlutusForecastPoint]], numPredictions: int) -> list[list[PlutusForecastPoint]]:
     """
-    Forecast future points based on historical data.
+    Forecast future points for multiple sequences based on historical data.
 
-    :param points: List of historical forecast points.
+    :param sequences: List of sequences, where each sequence contains historical forecast points.
     :param numPredictions: Number of future points to forecast.
-    :return: List of forecasted points.
+    :return: List of lists containing forecasted points for each sequence.
     """
     generator = ForecastGenerator()
-    predictions = []
-    for i in range(numPredictions):
-        next_point = generator.predict_next(points)
-        points.append(next_point)
-        points.remove(points[0])
-        predictions.append(next_point)
-    return predictions
+    all_predictions = [[] for _ in sequences]
+    current_sequences = [seq.copy() for seq in sequences]
+
+    for _ in range(numPredictions):
+        next_points = generator.predict_next(current_sequences)
+        for i, (next_point, sequence) in enumerate(zip(next_points, current_sequences)):
+            sequence.append(next_point)
+            sequence.pop(0)
+            all_predictions[i].append(next_point)
+
+    return all_predictions

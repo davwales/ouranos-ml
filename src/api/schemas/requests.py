@@ -6,5 +6,5 @@ class TextGenerationRequest(BaseSchema):
     messages: list[dict[str, str]]
 
 class PlutusForecastingRequest(BaseSchema):
-    points: list[PlutusForecastPoint]
+    points: list[list[PlutusForecastPoint]]
     num_predictions: int

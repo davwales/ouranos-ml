@@ -25,25 +25,33 @@ class ForecastGenerator:
         self.harness = Harness(model, None, None)
         self.harness.load_model(f'{experiment_path}/model.pth')
 
-    def predict_next(self, points: list[PlutusForecastPoint]) -> PlutusForecastPoint:
+    def predict_next(self, sequences: list[list[PlutusForecastPoint]]) -> list[PlutusForecastPoint]:
         """
-        Predicts the next point based on historical data.
+        Predicts the next point for multiple sequences based on historical data.
 
-        :param points: List of historical forecast points.
-        :return: Prediction of the next forecast point.
+        :param sequences: List of sequences, where each sequence contains historical forecast points.
+        :return: List of predictions, one for each input sequence.
         """
-        if (len(points) != 30):
-            raise ValueError(f"Expected 30 historical points, got '{len(points)}'.")
+        if not all(len(seq) == 30 for seq in sequences):
+            invalid_lengths = [i for i, seq in enumerate(sequences) if len(seq) != 30]
+            raise ValueError(f"All sequences must have 30 points. Invalid sequences at indices: {invalid_lengths}")
 
-        sequence = np.array([[p.average_price, p.min_price, p.min_price, p.volume] for p in points])
-        scale = np.max(sequence, axis=0)
-        sequence = sequence / scale
-        prediction = self.harness.predict(torch.FloatTensor([sequence]))[0][0]
-        prediction = prediction * scale
+        batch_sequences = np.array([
+            [[p.average_price, p.min_price, p.max_price, p.volume] for p in sequence]
+            for sequence in sequences
+        ])
 
-        return PlutusForecastPoint(
-            average_price=prediction[0],
-            min_price=prediction[1],
-            max_price=prediction[2],
-            volume=prediction[3]
-        )
+        scales = np.max(batch_sequences, axis=1, keepdims=True)
+        normalized_sequences = batch_sequences / scales
+        predictions = self.harness.predict(torch.FloatTensor(normalized_sequences))
+        denormalized_predictions = predictions[:, 0, :] * scales[:, 0, :]
+
+        return [
+            PlutusForecastPoint(
+                average_price=pred[0],
+                min_price=pred[1],
+                max_price=pred[2],
+                volume=pred[3]
+            )
+            for pred in denormalized_predictions
+        ]
