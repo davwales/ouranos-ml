@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes.generation import router as generation_router
+from src.api.routes.plutus import router as plutus_router
 
 print("Starting api...")
 app = FastAPI()
@@ -19,3 +20,4 @@ app.add_middleware(
 )
 
 app.include_router(generation_router)
+app.include_router(plutus_router)
