@@ -2,9 +2,7 @@
 FROM pytorch/pytorch:2.5.0-cuda12.4-cudnn9-runtime
 
 WORKDIR /app
-COPY requirements.txt .
-COPY main.py .
-COPY src ./src
+COPY . .
 RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 8000
