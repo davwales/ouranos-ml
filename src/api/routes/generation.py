@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from ..schemas import TextGenerationRequest
-from src.application.queries import generate_text
+from src.api.schemas import TextGenerationRequest
+from src.application.queries.text.generate_text import generate_text
 
 router = APIRouter(prefix="/generation")
 

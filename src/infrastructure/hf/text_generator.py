@@ -1,42 +1,42 @@
-from typing import Any, Generator
+from typing import Generator, Any
+from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedTokenizerBase, TextIteratorStreamer
 from threading import Thread
-from transformers import pipeline, TextIteratorStreamer, AutoTokenizer, PreTrainedTokenizerBase
-from accelerate.utils import release_memory
-
+import torch
+import gc
 
 class TextGenerator:
     def __init__(self, model_id: str):
         self.model_id = model_id
+        self.tokenizer = None
+        self.model = None
         
     def __enter__(self):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_id,
             max_length=2000,
             truncation=True,
-            use_fast=True)
+            use_fast=True
+        )
         
-        self.streamer = TextIteratorStreamer(
-            self.tokenizer, # type: ignore
-            skip_prompt=True,
-            skip_special_tokens=True)
-            
-        self.pipe = pipeline(
-            "text-generation",
+        self.model = AutoModelForCausalLM.from_pretrained(
             self.model_id,
-            tokenizer=self.tokenizer,
-            streamer=self.streamer,
-            device_map="cuda:0",
-            trust_remote_code=False,
-            batch_size=4,
-            do_sample=True)
+            device_map="auto",
+            torch_dtype=torch.float16
+        )
         
         return self
 
     def __exit__(self, *args):
-        self.tokenizer, self.streamer, self.pipe = release_memory(
-            self.tokenizer, 
-            self.streamer, 
-            self.pipe)
+        if hasattr(self.model, "to"):
+            self.model.to("cpu")
+        
+        del self.model
+        del self.tokenizer
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        gc.collect()
 
     def get_tokenizer(self) -> PreTrainedTokenizerBase:
         if not isinstance(self.tokenizer, PreTrainedTokenizerBase):
@@ -44,21 +44,27 @@ class TextGenerator:
         return self.tokenizer
 
     def generate(self, prompt: str) -> Generator[Any, Any, None]:
-        thread = Thread(
-            target=self.pipe,
-            kwargs={
-                "text_inputs": prompt,
-                "min_new_tokens": 16,
-                "max_new_tokens": 128,
-                "temperature": 0.7,
-                "top_p": 0.95,
-                "top_k": 40,
-                "repetition_penalty": 1.1
-            })
+        streamer = TextIteratorStreamer(
+            self.tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True
+        )
+        
+        input_ids = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+        gen_kwargs = dict(
+            input_ids=input_ids.input_ids,
+            min_new_tokens=16,
+            max_new_tokens=128,
+            temperature=0.7,
+            top_p=0.95,
+            top_k=40,
+            repetition_penalty=1.1,
+            do_sample=True,
+            streamer=streamer
+        )
 
+        thread = Thread(target=self.model.generate, kwargs=gen_kwargs)
         thread.start()
-        for chunk in self.streamer:
-            if chunk is None:
-                continue
-            yield chunk
-        thread.join()
+        for token in streamer:
+            if token is not None:
+                yield token
