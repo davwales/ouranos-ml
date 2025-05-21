@@ -12,3 +12,4 @@ uvicorn
 numpy<2
 scikit-learn
 matplotlib
+lmstudio

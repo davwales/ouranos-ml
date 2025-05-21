@@ -2,6 +2,8 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from src.api.schemas import TextGenerationRequest
+from src.application.queries.text.requests import ChatGenerationRequest
+from src.application.queries.text.generate_chat import generate_chat
 from src.application.queries.text.generate_text import generate_text
 
 router = APIRouter(prefix="/generation")
@@ -60,3 +62,8 @@ def text(request: TextGenerationRequest):
     print("Generating text...")
     model = "TheBloke/Loyal-Macaroni-Maid-7B-GPTQ"
     return StreamingResponse(generate_text(model, alpaca_template, request.messages), media_type="text/plain")
+
+@router.post("/chat")
+def chat(request: ChatGenerationRequest):
+    print("Generating chat completion...")
+    return StreamingResponse(generate_chat(request), media_type="text/plain")
