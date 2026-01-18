@@ -1,5 +1,24 @@
+stages:
+  - validate
+  - build
+
+ruff_check:
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  stage: validate
+  script:
+    - uv sync --all-groups
+    - uv run ruff check .
+
+ty_check:
+  image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+  stage: validate
+  script:
+    - uv sync --all-groups
+    - uv run ty check .
+
 build:
   image: docker:stable
+  stage: build
   services:
     - docker:dind
   before_script:
@@ -11,7 +30,7 @@ build:
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
         - Dockerfile
-        - requirements.txt
+        - pyproject.toml
         - src/**/*
         - .gitlab-ci.yml
       when: always
