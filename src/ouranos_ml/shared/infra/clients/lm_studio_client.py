@@ -2,7 +2,7 @@ from types import TracebackType
 
 import lmstudio as lms
 
-from ouranos_ml.domain.settings.settings import settings
+from ouranos_ml.shared.domain.core.settings import settings
 
 
 class LMStudioClient:

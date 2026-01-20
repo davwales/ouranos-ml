@@ -85,3 +85,6 @@ pydocstyle = { convention = 'google' }
 
 [tool.ruff.format]
 quote-style = 'double'
+
+[tool.ruff.lint.extend-per-file-ignores]
+"*/router.py" = ["F401", "E402"]

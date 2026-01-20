@@ -3,14 +3,14 @@ from typing import Any
 
 from lmstudio import Chat
 
-from ouranos_ml.application.queries.text.generate_chat import ChatGenerationRequest
-from ouranos_ml.domain.chat.chat_message import ChatMessage
-from ouranos_ml.domain.chat.role import Role
-from ouranos_ml.domain.settings.settings import settings
-from ouranos_ml.infrastructure.lmstudio.lm_studio_client import LMStudioClient
+from ouranos_ml.features.chat.completions.schemas import ChatCompletionsRequest
+from ouranos_ml.shared.domain.chat.chat_message import ChatMessage
+from ouranos_ml.shared.domain.chat.role import Role
+from ouranos_ml.shared.domain.core.settings import settings
+from ouranos_ml.shared.infra.clients.lm_studio_client import LMStudioClient
 
 
-def generate(query: ChatGenerationRequest) -> Generator[Any, Any, None]:
+def respond_stream(query: ChatCompletionsRequest) -> Generator[Any, Any, None]:
     """Generates a chat completion using LM Studio."""
     with LMStudioClient() as client:
         model = client.llm.model(query.model, ttl=settings.lmstudio_model_ttl)

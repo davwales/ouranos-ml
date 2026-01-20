@@ -2,8 +2,9 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from ouranos_ml.api.routes.generation import router as generation_router
-from ouranos_ml.api.routes.plutus import router as plutus_router
+from ouranos_ml.features.chat.router import chat_router
+from ouranos_ml.features.generation.router import generation_router
+from ouranos_ml.features.plutus.router import plutus_router
 
 app = FastAPI()
 
@@ -15,8 +16,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(generation_router)
 app.include_router(plutus_router)
+app.include_router(chat_router)
+app.include_router(generation_router)  # remove once chat route is fully deprecated
 
 
 def main() -> None:
