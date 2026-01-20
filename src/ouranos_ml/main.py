@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ouranos_ml.features.chat.router import chat_router
 from ouranos_ml.features.generation.router import generation_router
+from ouranos_ml.features.models.router import models_router
 from ouranos_ml.features.plutus.router import plutus_router
 
 app = FastAPI()
@@ -19,6 +20,7 @@ app.add_middleware(
 app.include_router(plutus_router)
 app.include_router(chat_router)
 app.include_router(generation_router)  # remove once chat route is fully deprecated
+app.include_router(models_router)
 
 
 def main() -> None:
