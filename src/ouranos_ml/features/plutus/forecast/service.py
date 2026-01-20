@@ -1,14 +1,9 @@
-from ouranos_ml.domain.plutus.forecast_point import PlutusForecastPoint
-from ouranos_ml.infrastructure.plutus.forecast_generator import ForecastGenerator
+from ouranos_ml.features.plutus.forecast.integration import ForecastGenerator
+from ouranos_ml.shared.domain.plutus.forecast_point import PlutusForecastPoint
 
 
 def forecast_points(sequences: list[list[PlutusForecastPoint]], numPredictions: int) -> list[list[PlutusForecastPoint]]:
-    """Forecast future points for multiple sequences based on historical data.
-
-    :param sequences: List of sequences, where each sequence contains historical forecast points.
-    :param numPredictions: Number of future points to forecast.
-    :return: List of lists containing forecasted points for each sequence.
-    """
+    """Forecast future points for multiple sequences based on historical data."""
     generator = ForecastGenerator()
     all_predictions: list[list[PlutusForecastPoint]] = [[] for _ in sequences]
     current_sequences = [seq.copy() for seq in sequences]

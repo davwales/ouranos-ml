@@ -1,4 +1,4 @@
-from ouranos_ml.domain.common.base_schema import BaseSchema
+from ouranos_ml.shared.domain.core.base_schema import BaseSchema
 
 
 class PlutusForecastPoint(BaseSchema):

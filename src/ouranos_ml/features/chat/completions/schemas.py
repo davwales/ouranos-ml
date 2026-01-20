@@ -1,8 +1,8 @@
-from ouranos_ml.domain.chat.chat_message import ChatMessage
-from ouranos_ml.domain.common.base_schema import BaseSchema
+from ouranos_ml.shared.domain.chat.chat_message import ChatMessage
+from ouranos_ml.shared.domain.core.base_schema import BaseSchema
 
 
-class ChatGenerationRequest(BaseSchema):
+class ChatCompletionsRequest(BaseSchema):
     """Request for generating a chat completion."""
 
     model: str

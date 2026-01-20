@@ -6,13 +6,11 @@ import torch
 
 from experiments.plutus_forecasting.model import Model
 from experiments.utils.harness import Harness
-from ouranos_ml.domain.plutus.forecast_point import PlutusForecastPoint
+from ouranos_ml.shared.domain.plutus.forecast_point import PlutusForecastPoint
 
 
 class ForecastGenerator:
-    """Generator used to predict future Plutus datapoints using the model trained
-    as part of the 'plutus_forecasting' experiment.
-    """
+    """Generator used to predict future Plutus datapoints using the model trained as part of the 'plutus_forecasting' experiment."""
 
     def __init__(self) -> None:
         experiment_path = "src/experiments/plutus_forecasting"
@@ -33,11 +31,7 @@ class ForecastGenerator:
         self.harness.load_model(f"{experiment_path}/model.pth")
 
     def predict_next(self, sequences: list[list[PlutusForecastPoint]]) -> list[PlutusForecastPoint]:
-        """Predicts the next point for multiple sequences based on historical data.
-
-        :param sequences: List of sequences, where each sequence contains historical forecast points.
-        :return: List of predictions, one for each input sequence.
-        """
+        """Predicts the next point for multiple sequences based on historical data."""
         if not all(len(seq) == 30 for seq in sequences):
             invalid_lengths = [i for i, seq in enumerate(sequences) if len(seq) != 30]
             raise ValueError(f"All sequences must have 30 points. Invalid sequences at indices: {invalid_lengths}")
