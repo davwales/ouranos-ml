@@ -64,6 +64,7 @@ select = [
     'PYI063', # flake8-pyi
     'PYI066', # flake8-pyi
     'ANN',    # Type hinting
+    "TID"     # flake8-tidy-imports
 ]
 ignore = [
     'D100',

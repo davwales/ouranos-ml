@@ -1,25 +1,14 @@
-from types import TracebackType
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
-import lmstudio as lms
+from lmstudio import AsyncClient
 
-from ouranos_ml.shared.domain.core.settings import settings
+from ouranos_ml.shared.domain.core.settings import get_settings
 
 
-class LMStudioClient:
-    """A client for interacting with the LM Studio API."""
-
-    def __init__(self, base_url: str | None = None) -> None:
-        self._base_url = settings.lmstudio_base_url
-        self._client = None
-
-    def __enter__(self) -> lms.Client:
-        self._client = lms.Client(self._base_url)
-        return self._client
-
-    def __exit__(
-        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
-    ) -> bool | None:
-        if self._client:
-            self._client.close()
-        self._client = None
-        return False
+@asynccontextmanager
+async def get_client() -> AsyncGenerator[AsyncClient]:
+    """Creates an async LMStudio client."""
+    settings = get_settings()
+    async with AsyncClient(settings.lmstudio_base_url) as client:
+        yield client

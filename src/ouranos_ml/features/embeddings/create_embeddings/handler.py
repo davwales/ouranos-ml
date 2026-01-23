@@ -9,10 +9,10 @@ from ouranos_ml.features.embeddings.create_embeddings.schemas import (
 )
 
 
-def get_embeddings(request: CreateEmbeddingsRequest) -> CreateEmbeddingsResponse:
+async def handle(request: CreateEmbeddingsRequest) -> CreateEmbeddingsResponse:
     """Creates embeddings."""
-    token_counts = count_tokens(request.model, request.input)
-    embeddings = embed(request.model, request.input)
+    token_counts = await count_tokens(request.model, request.input)
+    embeddings = await embed(request.model, request.input)
 
     if not isinstance(embeddings[0], Sequence):
         embeddings = [embeddings]
