@@ -1,21 +1,21 @@
-from collections.abc import Generator
-from typing import Any
+from collections.abc import AsyncGenerator
 
 from lmstudio import Chat
 
 from ouranos_ml.features.chat.completions.schemas import ChatCompletionsRequest
 from ouranos_ml.shared.domain.chat.chat_message import ChatMessage
 from ouranos_ml.shared.domain.chat.role import Role
-from ouranos_ml.shared.domain.core.settings import settings
-from ouranos_ml.shared.infra.clients.lm_studio_client import LMStudioClient
+from ouranos_ml.shared.domain.core.settings import get_settings
+from ouranos_ml.shared.infra.clients.lm_studio_client import get_client
 
 
-def respond_stream(query: ChatCompletionsRequest) -> Generator[Any, Any, None]:
+async def respond_stream(query: ChatCompletionsRequest) -> AsyncGenerator[str]:
     """Generates a chat completion using LM Studio."""
-    with LMStudioClient() as client:
-        model = client.llm.model(query.model, ttl=settings.lmstudio_model_ttl)
+    async with get_client() as client:
+        settings = get_settings()
+        model = await client.llm.model(query.model, ttl=settings.lmstudio_model_ttl)
         chat = _create_chat(query.messages)
-        stream = model.respond_stream(
+        stream = await model.respond_stream(
             chat,
             config={
                 "temperature": query.temperature,
@@ -23,7 +23,7 @@ def respond_stream(query: ChatCompletionsRequest) -> Generator[Any, Any, None]:
                 "repeatPenalty": query.repeat_penalty,
             },
         )
-        for fragment in stream:
+        async for fragment in stream:
             yield fragment.content
 
 

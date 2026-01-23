@@ -6,6 +6,6 @@ from ouranos_ml.features.generation.router import generation_router
 
 
 @generation_router.post("/chat", deprecated=True)
-def chat(request: ChatCompletionsRequest) -> StreamingResponse:
+async def chat(request: ChatCompletionsRequest) -> StreamingResponse:
     """Streams a completion response from the specified chat history and configuration."""
-    return completions(request)
+    return await completions(request)
