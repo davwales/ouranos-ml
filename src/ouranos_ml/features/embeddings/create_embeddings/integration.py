@@ -1,23 +1,17 @@
-from asyncio import gather
-from collections.abc import Sequence
+from ouranos_ml.features.embeddings.create_embeddings.schemas import (
+    CreateEmbeddingsResponse,
+    Embedding,
+    Usage,
+)
+from ouranos_ml.shared.infra.clients.lm_studio_client import get_openai_client
 
-from ouranos_ml.shared.infra.clients.lm_studio_client import get_client
 
-
-async def embed(model_key: str, input: str | list[str]) -> Sequence[int | float] | Sequence[Sequence[int | float]]:
+async def embed(model: str, input: str | list[str]) -> CreateEmbeddingsResponse:
     """Creates embeddings using lmstudio for the given request."""
-    async with get_client() as client:
-        model = await client.embedding.model(model_key)
-        return await model.embed(input)
-
-
-async def count_tokens(model_key: str, input: str | list[str]) -> list[int]:
-    """Returns the number of tokens in the input."""
-    async with get_client() as client:
-        model = await client.embedding.model(model_key)
-
-        if isinstance(input, str):
-            return [await model.count_tokens(input)]
-
-        tasks = [model.count_tokens(x) for x in list(input)]
-        return await gather(*tasks)
+    client = get_openai_client()
+    response = await client.embeddings.create(model=model, input=input)
+    return CreateEmbeddingsResponse(
+        model=response.model,
+        data=[Embedding(index=e.index, embedding=e.embedding) for e in response.data],
+        usage=Usage(prompt_tokens=response.usage.prompt_tokens, total_tokens=response.usage.total_tokens),
+    )

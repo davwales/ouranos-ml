@@ -1,8 +1,17 @@
-from ouranos_ml.shared.infra.clients.lm_studio_client import get_client
+from datetime import datetime
+
+from dateutil.tz import UTC
+
+from ouranos_ml.features.models.list_models.schemas import ListModelsResponse, Model
+from ouranos_ml.shared.infra.clients.lm_studio_client import get_openai_client
 
 
-async def list_downloaded_models() -> list[str]:
+async def list_downloaded_models() -> ListModelsResponse:
     """Lists all downloaded models in LMStudio."""
-    async with get_client() as client:
-        models = await client.list_downloaded_models()
-        return [m.model_key for m in models]
+    client = get_openai_client()
+    return ListModelsResponse(
+        data=[
+            Model(id=model.id, owned_by=model.owned_by, created=int(datetime.now(UTC).timestamp()))
+            async for model in client.models.list()
+        ]
+    )

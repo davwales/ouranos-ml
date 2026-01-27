@@ -12,6 +12,7 @@ dependencies = [
     "lmstudio>=1.5.0",
     "matplotlib>=3.10.8",
     "numpy<2",
+    "openai>=2.15.0",
     "optimum>=2.1.0",
     "pandas>=2.3.3",
     "pydantic-settings>=2.12.0",
@@ -89,3 +90,6 @@ quote-style = 'double'
 
 [tool.ruff.lint.extend-per-file-ignores]
 "*/router.py" = ["F401", "E402"]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = true
