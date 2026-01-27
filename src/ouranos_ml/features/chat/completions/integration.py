@@ -1,41 +1,60 @@
 from collections.abc import AsyncGenerator
 
-from lmstudio import Chat
+from openai.lib.streaming.chat import ChunkEvent
+from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+)
 
-from ouranos_ml.features.chat.completions.schemas import ChatCompletionsRequest
-from ouranos_ml.shared.domain.chat.chat_message import ChatMessage
-from ouranos_ml.shared.domain.chat.role import Role
-from ouranos_ml.shared.domain.core.settings import get_settings
-from ouranos_ml.shared.infra.clients.lm_studio_client import get_client
-
-
-async def respond_stream(query: ChatCompletionsRequest) -> AsyncGenerator[str]:
-    """Generates a chat completion using LM Studio."""
-    async with get_client() as client:
-        settings = get_settings()
-        model = await client.llm.model(query.model, ttl=settings.lmstudio_model_ttl)
-        chat = _create_chat(query.messages)
-        stream = await model.respond_stream(
-            chat,
-            config={
-                "temperature": query.temperature,
-                "maxTokens": query.max_tokens,
-                "repeatPenalty": query.repeat_penalty,
-            },
-        )
-        async for fragment in stream:
-            yield fragment.content
+from ouranos_ml.features.chat.completions.schemas import (
+    ChatCompletionChunkResponse,
+    ChatCompletionRole,
+    ChatCompletionsRequest,
+    ChunkChoice,
+    ChunkDelta,
+    RequestMessage,
+)
+from ouranos_ml.shared.infra.clients.lm_studio_client import get_openai_client
 
 
-def _create_chat(messages: list[ChatMessage]) -> Chat:
-    chat = Chat()
-    for m in messages:
-        if m.Role == Role.ASSISTANT:
-            chat.add_assistant_response(m.Content)
-        elif m.Role == Role.USER:
-            chat.add_user_message(m.Content)
-        elif m.Role == Role.SYSTEM:
-            chat.add_system_prompt(m.Content)
-        else:
-            raise ValueError(f"Unsupported message type '{m.Role}'.")
-    return chat
+async def respond_stream(query: ChatCompletionsRequest) -> AsyncGenerator[ChatCompletionChunkResponse]:
+    """Streams a chat completion using LM Studio."""
+    client = get_openai_client()
+    async with client.chat.completions.stream(
+        model=query.model,
+        messages=[_convert_message(m) for m in query.messages],
+        top_p=query.top_p,
+        temperature=query.temperature,
+        max_completion_tokens=query.max_completion_tokens,
+        stop=query.stop,
+        presence_penalty=query.presence_penalty,
+        frequency_penalty=query.frequency_penalty,
+        logit_bias=query.logit_bias,
+    ) as stream:
+        async for event in stream:
+            if isinstance(event, ChunkEvent):
+                chunk = event.chunk
+                yield ChatCompletionChunkResponse(
+                    id=chunk.id,
+                    created=chunk.created,
+                    model=chunk.model,
+                    system_fingerprint=chunk.system_fingerprint,
+                    choices=[
+                        ChunkChoice(
+                            index=c.index, delta=ChunkDelta(content=c.delta.content), finish_reason=c.finish_reason
+                        )
+                        for c in chunk.choices
+                    ],
+                )
+
+
+def _convert_message(message: RequestMessage) -> ChatCompletionMessageParam:
+    if message.role == ChatCompletionRole.SYSTEM:
+        return ChatCompletionSystemMessageParam(role="system", content=message.content)
+    if message.role == ChatCompletionRole.USER:
+        return ChatCompletionUserMessageParam(role="user", content=message.content)
+    if message.role == ChatCompletionRole.ASSISTANT:
+        return ChatCompletionAssistantMessageParam(role="assistant", content=message.content)
+    raise ValueError(f"Unsupported message type '{message.role}'.")

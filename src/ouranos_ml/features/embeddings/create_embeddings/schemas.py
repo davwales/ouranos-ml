@@ -8,19 +8,19 @@ class CreateEmbeddingsRequest(BaseSchema):
     model: str
 
 
-class UsageResponse(BaseSchema):
-    """Usage statistics from serving the request."""
-
-    prompt_tokens: int
-    total_tokens: int
-
-
-class EmbeddingResponse(BaseSchema):
+class Embedding(BaseSchema):
     """Response containing the embeddings."""
 
     object: str = "embedding"
-    embedding: list[float]
+    embedding: list[int | float]
     index: int
+
+
+class Usage(BaseSchema):
+    """Response containing the usage information."""
+
+    prompt_tokens: int
+    total_tokens: int
 
 
 class CreateEmbeddingsResponse(BaseSchema):
@@ -28,5 +28,5 @@ class CreateEmbeddingsResponse(BaseSchema):
 
     object: str = "list"
     model: str
-    data: list[EmbeddingResponse]
-    usage: UsageResponse
+    data: list[Embedding]
+    usage: Usage
