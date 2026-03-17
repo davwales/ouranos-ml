@@ -6,6 +6,7 @@ on:
 
 env:
   REGISTRY: codeberg.org
+  REGISTRY_PREFIX: codeberg.org/${{ github.repository_owner }}
 
 jobs:
   lint:
@@ -40,4 +41,4 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           push: true
-          tags: ${{ github.event.repository.name }}
+          tags: ${{ env.REGISTRY_PREFIX }}/${{ github.event.repository.name }}
