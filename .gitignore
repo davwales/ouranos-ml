@@ -162,6 +162,18 @@ cython_debug/
 # ruff
 .ruff_cache/
 
+# AI Assistants
+.cursorrules
+.cursor/rules/
+.clinerules
+.windsurfrules
+.github/copilot-instructions.md
+CLAUDE.md
+.ai/
+.memory/
+.prompt_history/
+memory/*.md
+
 # Custom
 
 datasets/*
