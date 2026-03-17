@@ -14,26 +14,26 @@ This project houses both the experimentation and hosting stages of Ouranos machi
 
 1. If you have not already, create a virtual environment.
 
-```
+```bash
 uv venv
 ```
 
 2. Install dependencies.
 
-```
+```bash
 uv sync
 ```
 
 3. Run using uvicorn. Either of the following commands will work.
 
-```
+```bash
 uv run start
 uv run ouranos_ml
 ```
 
 4. Run using docker.
 
-```
+```bash
 docker build -t ouranos-ml .
 docker run --gpus=all -d -p 8000:8000 ouranos-ml
 ```
@@ -42,10 +42,8 @@ docker run --gpus=all -d -p 8000:8000 ouranos-ml
 
 You can pull the latest image from the repository and run it using the following command.
 
-```
-docker login registry.gitlab.com
-docker pull registry.gitlab.com/talos8645929/ouranos-ml:latest
-docker run --gpus=all -d -p 8000:8000 --name ouranos-ml -e LMSTUDIO_BASE_URL=host.docker.internal:1234 registry.gitlab.com/talos8645929/ouranos-ml:latest
+```bash
+docker compose up -d
 ```
 
 ### Running an experiment
@@ -54,7 +52,7 @@ docker run --gpus=all -d -p 8000:8000 --name ouranos-ml -e LMSTUDIO_BASE_URL=hos
 2. Add your experiment to the list of experiments in `src/experiments/main.py`.
 3. Execute your experiment.
 
-```
+```bash
 uv run experiment {your_experiment_name}
 ```
 

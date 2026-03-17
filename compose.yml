@@ -1,0 +1,16 @@
+services:
+  ouranos-ml:
+    image: codeberg.org/ouranos-labs/ouranos-ml:latest
+    ports:
+      - "8000:8000"
+    environment:
+      LMSTUDIO_BASE_URL: host.docker.internal:1234
+      LMSTUDIO_OPENAI_BASE_URL: http://host.docker.internal:1234/v1
+      LMSTUDIO_MODEL_TTL: 300
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
