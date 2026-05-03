@@ -7,11 +7,12 @@ from ouranos_ml.features.embeddings.router import embeddings_router
 from ouranos_ml.features.generation.router import generation_router
 from ouranos_ml.features.models.router import models_router
 from ouranos_ml.features.plutus.router import plutus_router
+from ouranos_ml.shared.domain.core.settings import get_settings
 
 app = FastAPI()
 
 app.add_middleware(
-    CORSMiddleware,  # ty: ignore[invalid-argument-type]
+    CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
@@ -27,7 +28,8 @@ app.include_router(embeddings_router)
 
 def main() -> None:
     """Main entry point for the Ouranos ML API."""
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    settings = get_settings()
+    uvicorn.run(app, host="0.0.0.0", port=settings.port)
 
 
 if __name__ == "__main__":

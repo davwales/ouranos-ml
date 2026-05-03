@@ -19,6 +19,14 @@ class RequestMessage(BaseSchema):
     content: str
 
 
+class StreamOptions(BaseSchema):
+    """Options for streaming response. Only set when stream is true."""
+
+    include_usage: bool = False
+    """If set, an additional chunk will be streamed before the [DONE] message
+    with total token usage. All other chunks will include a null usage field."""
+
+
 class ChatCompletionsRequest(BaseSchema):
     """Request for generating a chat completion."""
 
@@ -29,6 +37,7 @@ class ChatCompletionsRequest(BaseSchema):
     temperature: float = 1.0
     max_completion_tokens: int | None = None
     stream: bool | None = False
+    stream_options: StreamOptions | None = None
     stop: str | list[str] | None = None
     presence_penalty: float | None = 0.0
     frequency_penalty: float | None = 0.0
@@ -95,3 +104,4 @@ class ChatCompletionChunkResponse(BaseSchema):
     model: str
     system_fingerprint: str | None
     choices: list[ChunkChoice]
+    usage: Usage | None = None

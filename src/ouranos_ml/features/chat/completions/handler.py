@@ -12,6 +12,7 @@ from ouranos_ml.features.chat.completions.schemas import (
     ChatCompletionsResponse,
     Choice,
     ChoiceMessage,
+    StreamOptions,
     Usage,
 )
 
@@ -39,8 +40,14 @@ async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
             system_fingerprint=None,
         )
 
-    chunks = [chunk async for chunk in respond_stream(query)]
-    content = [c.choices[0].delta.content for c in chunks if c.choices[0].delta.content]
+    query_with_usage = query.model_copy(update={"stream_options": StreamOptions(include_usage=True)})
+    chunks = [chunk async for chunk in respond_stream(query_with_usage)]
+    content = [c.choices[0].delta.content for c in chunks if c.choices and c.choices[0].delta.content]
+
+    usage = (
+        chunks[-1].usage if chunks and chunks[-1].usage else Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+    )
+
     return ChatCompletionsResponse(
         id=chunks[-1].id,
         model=chunks[-1].model,
@@ -52,6 +59,6 @@ async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
                 message=ChoiceMessage(role=ChatCompletionRole.ASSISTANT, content="".join(content)),
             )
         ],
-        usage=Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+        usage=usage,
         system_fingerprint=chunks[-1].system_fingerprint,
     )

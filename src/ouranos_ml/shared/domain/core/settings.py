@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     lmstudio_base_url: str = "localhost:1234"
     lmstudio_openai_base_url: str = "http://localhost:1234/v1"
     lmstudio_model_ttl: int = 300
+    port: int = 8000
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
