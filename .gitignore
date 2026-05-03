@@ -173,6 +173,7 @@ CLAUDE.md
 .memory/
 .prompt_history/
 memory/*.md
+AGENTS.md
 
 # Custom
 
