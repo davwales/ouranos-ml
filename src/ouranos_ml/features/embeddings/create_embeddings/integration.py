@@ -3,11 +3,11 @@ from ouranos_ml.features.embeddings.create_embeddings.schemas import (
     Embedding,
     Usage,
 )
-from ouranos_ml.shared.infra.clients.lm_studio_client import get_openai_client
+from ouranos_ml.shared.infra.clients.llm_client import get_openai_client
 
 
 async def embed(model: str, input: str | list[str]) -> CreateEmbeddingsResponse:
-    """Creates embeddings using lmstudio for the given request."""
+    """Creates embeddings using the LLM service for the given request."""
     client = get_openai_client()
     response = await client.embeddings.create(model=model, input=input)
     return CreateEmbeddingsResponse(

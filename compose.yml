@@ -4,9 +4,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      LMSTUDIO_BASE_URL: host.docker.internal:1234
-      LMSTUDIO_OPENAI_BASE_URL: http://host.docker.internal:1234/v1
-      LMSTUDIO_MODEL_TTL: 300
+      LLM_BASE_URL: host.docker.internal:1234
+      LLM_OPENAI_BASE_URL: http://host.docker.internal:1234/v1
+      LLM_MODEL_TTL: 300
     deploy:
       resources:
         reservations:
