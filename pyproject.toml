@@ -9,7 +9,7 @@ dependencies = [
     "accelerate>=1.12.0",
     "fastapi>=0.128.0",
     "fastapi-utils>=0.8.0",
-    "lmstudio>=1.5.0",
+
     "matplotlib>=3.10.8",
     "numpy<2",
     "openai>=2.15.0",

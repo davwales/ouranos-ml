@@ -3,11 +3,11 @@ from datetime import datetime
 from dateutil.tz import UTC
 
 from ouranos_ml.features.models.list_models.schemas import ListModelsResponse, Model
-from ouranos_ml.shared.infra.clients.lm_studio_client import get_openai_client
+from ouranos_ml.shared.infra.clients.llm_client import get_openai_client
 
 
 async def list_downloaded_models() -> ListModelsResponse:
-    """Lists all downloaded models in LMStudio."""
+    """Lists all downloaded models from the LLM service."""
     client = get_openai_client()
     return ListModelsResponse(
         data=[

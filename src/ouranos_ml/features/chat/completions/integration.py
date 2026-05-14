@@ -17,7 +17,7 @@ from ouranos_ml.features.chat.completions.schemas import (
     RequestMessage,
     Usage,
 )
-from ouranos_ml.shared.infra.clients.lm_studio_client import get_openai_client
+from ouranos_ml.shared.infra.clients.llm_client import get_openai_client
 
 
 def _extract_usage(chunk_usage: object) -> Usage | None:
