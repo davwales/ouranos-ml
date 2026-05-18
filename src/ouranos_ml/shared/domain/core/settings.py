@@ -6,8 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Configurable values for the Ouranos ML application."""
 
-    llm_base_url: str = "localhost:1234"
-    llm_openai_base_url: str = "http://localhost:1234/v1"
+    llm_base_url: str = "localhost:11434"
+    llm_openai_base_url: str = "http://localhost:11434/v1"
     llm_model_ttl: int = 300
     port: int = 8000
 
