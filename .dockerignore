@@ -34,6 +34,7 @@ env/
 
 # Docs and misc (not needed at runtime)
 *.md
+!README.md
 LICENSE
 Dockerfile
 compose.yml
