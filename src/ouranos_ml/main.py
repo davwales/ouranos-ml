@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ouranos_ml.features.chat.router import chat_router
 from ouranos_ml.features.embeddings.router import embeddings_router
+from ouranos_ml.features.health.router import health_router
 from ouranos_ml.features.models.router import models_router
 from ouranos_ml.features.plutus.router import plutus_router
 from ouranos_ml.shared.domain.core.settings import get_settings
@@ -22,6 +23,7 @@ app.include_router(plutus_router)
 app.include_router(chat_router)
 app.include_router(models_router)
 app.include_router(embeddings_router)
+app.include_router(health_router)
 
 
 def main() -> None:

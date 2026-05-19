@@ -1,0 +1,39 @@
+# Python artifacts
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+.mypy_cache
+*.egg-info
+eggs/
+*.egg
+dist/
+build/
+
+# Virtual environments
+.venv
+venv
+env/
+
+# Version control and config
+.git
+.gitignore
+.gitlab-ci.yml
+.gitattributes
+
+# Environment and secrets
+.env
+.env.*
+
+# IDE and editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# Docs and misc (not needed at runtime)
+*.md
+LICENSE
+Dockerfile
+compose.yml
