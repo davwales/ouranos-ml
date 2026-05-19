@@ -1,9 +1,12 @@
 FROM pytorch/pytorch:2.9.1-cuda12.8-cudnn9-runtime
 
 WORKDIR /app
-COPY . .
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-RUN uv sync
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+COPY . .
+RUN uv sync --frozen --no-dev
 
 EXPOSE 8000
 ENV PYTHONUNBUFFERED=1
