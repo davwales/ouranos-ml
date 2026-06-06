@@ -1,0 +1,32 @@
+info:
+  name: Completions
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/chat/completions"
+  params:
+    - name: ""
+      value: ""
+      type: query
+  body:
+    type: json
+    data: |-
+      {
+        "model": "{{MODEL}}",
+        "messages": [
+          {
+            "role": "user",
+            "content": "tell me a programming joke"
+          }
+        ],
+        "stream": false
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,8 @@
+name: workstation
+variables:
+  - name: BASE_URL
+    value: http://workstation:8000
+  - name: MODEL
+    value: hf.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF:latest
+  - name: EMBEDDING_MODEL
+    value: hf.co/Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M
