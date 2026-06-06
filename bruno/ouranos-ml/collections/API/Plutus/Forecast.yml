@@ -1,0 +1,59 @@
+info:
+  name: Forecast
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/plutus/forecast"
+  params:
+    - name: ""
+      value: ""
+      type: query
+  body:
+    type: json
+    data: |-
+      {
+        "points": [
+          [
+            {"averagePrice": 142.5, "minPrice": 140.2, "maxPrice": 145.8, "volume": 12500},
+            {"averagePrice": 143.1, "minPrice": 141.0, "maxPrice": 146.3, "volume": 13200},
+            {"averagePrice": 144.8, "minPrice": 142.5, "maxPrice": 147.2, "volume": 11800},
+            {"averagePrice": 146.2, "minPrice": 143.8, "maxPrice": 148.5, "volume": 14100},
+            {"averagePrice": 145.5, "minPrice": 143.0, "maxPrice": 147.8, "volume": 10900},
+            {"averagePrice": 144.0, "minPrice": 141.5, "maxPrice": 146.5, "volume": 15600},
+            {"averagePrice": 142.8, "minPrice": 140.8, "maxPrice": 145.2, "volume": 12700},
+            {"averagePrice": 141.5, "minPrice": 139.5, "maxPrice": 143.8, "volume": 13800},
+            {"averagePrice": 140.2, "minPrice": 138.0, "maxPrice": 142.5, "volume": 14500},
+            {"averagePrice": 139.8, "minPrice": 137.5, "maxPrice": 142.0, "volume": 16200},
+            {"averagePrice": 141.0, "minPrice": 139.0, "maxPrice": 143.5, "volume": 13100},
+            {"averagePrice": 142.5, "minPrice": 140.5, "maxPrice": 145.0, "volume": 11900},
+            {"averagePrice": 144.2, "minPrice": 142.0, "maxPrice": 146.8, "volume": 12400},
+            {"averagePrice": 145.8, "minPrice": 143.5, "maxPrice": 148.2, "volume": 13700},
+            {"averagePrice": 147.5, "minPrice": 145.0, "maxPrice": 150.0, "volume": 15300},
+            {"averagePrice": 149.2, "minPrice": 147.0, "maxPrice": 151.5, "volume": 16800},
+            {"averagePrice": 150.8, "minPrice": 148.5, "maxPrice": 153.2, "volume": 17500},
+            {"averagePrice": 152.5, "minPrice": 150.0, "maxPrice": 155.0, "volume": 18200},
+            {"averagePrice": 151.0, "minPrice": 148.8, "maxPrice": 153.5, "volume": 14600},
+            {"averagePrice": 149.5, "minPrice": 147.2, "maxPrice": 152.0, "volume": 13900},
+            {"averagePrice": 148.0, "minPrice": 145.5, "maxPrice": 150.5, "volume": 12800},
+            {"averagePrice": 146.5, "minPrice": 144.0, "maxPrice": 149.0, "volume": 11500},
+            {"averagePrice": 145.0, "minPrice": 142.5, "maxPrice": 147.5, "volume": 12200},
+            {"averagePrice": 143.5, "minPrice": 141.0, "maxPrice": 146.0, "volume": 13500},
+            {"averagePrice": 144.8, "minPrice": 142.5, "maxPrice": 147.2, "volume": 14100},
+            {"averagePrice": 146.2, "minPrice": 143.8, "maxPrice": 148.8, "volume": 15800},
+            {"averagePrice": 147.8, "minPrice": 145.5, "maxPrice": 150.2, "volume": 16400},
+            {"averagePrice": 149.0, "minPrice": 146.8, "maxPrice": 151.5, "volume": 17100},
+            {"averagePrice": 150.5, "minPrice": 148.2, "maxPrice": 153.0, "volume": 18500},
+            {"averagePrice": 152.0, "minPrice": 149.5, "maxPrice": 154.5, "volume": 19200}
+          ]
+        ],
+        "numPredictions": 5
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

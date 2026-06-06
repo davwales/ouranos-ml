@@ -1,7 +1,6 @@
-from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, NamedTuple
+from typing import Any
 
 from ouranos_ml.shared.domain.core.base_schema import BaseSchema
 from pydantic import Field
@@ -46,10 +45,3 @@ class HealthResponse(BaseSchema):
     status: ServiceStatus
     checks: dict[str, HealthCheck]
 
-
-class CheckDef(NamedTuple):
-    """Definition of a single health check in the registry."""
-
-    name: str
-    fn: Callable[..., Any]
-    needs_timeout: bool

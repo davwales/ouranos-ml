@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-health_router = APIRouter(prefix="/health")
+from ouranos_ml.features.health.check.endpoint import register as register_check
 
-# Routes
-from ouranos_ml.features.health.check.api import health_check
+health_router = APIRouter(prefix="/health")
+register_check(health_router)

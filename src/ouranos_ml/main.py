@@ -19,11 +19,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(plutus_router)
 app.include_router(chat_router)
-app.include_router(models_router)
 app.include_router(embeddings_router)
 app.include_router(health_router)
+app.include_router(models_router)
+app.include_router(plutus_router)
 
 
 def main() -> None:

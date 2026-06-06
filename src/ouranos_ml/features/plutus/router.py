@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-plutus_router = APIRouter(prefix="/plutus")
+from ouranos_ml.features.plutus.forecast.endpoint import register as register_forecast
 
-# Routes
-from ouranos_ml.features.plutus.forecast.api import forecast
+plutus_router = APIRouter(prefix="/plutus")
+register_forecast(plutus_router)

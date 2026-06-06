@@ -6,7 +6,7 @@ from ouranos_ml.features.models.list_models.schemas import ListModelsResponse, M
 from ouranos_ml.shared.infra.clients.llm_client import get_openai_client
 
 
-async def list_downloaded_models() -> ListModelsResponse:
+async def handle() -> ListModelsResponse:
     """Lists all downloaded models from the LLM service."""
     client = get_openai_client()
     return ListModelsResponse(

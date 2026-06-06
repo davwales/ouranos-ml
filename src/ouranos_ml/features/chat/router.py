@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-chat_router = APIRouter(prefix="/chat")
+from ouranos_ml.features.chat.completions.endpoint import register as register_completions
 
-# Routes
-from ouranos_ml.features.chat.completions.api import completions
+chat_router = APIRouter(prefix="/chat")
+register_completions(chat_router)

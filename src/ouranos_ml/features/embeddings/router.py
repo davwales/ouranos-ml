@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-embeddings_router = APIRouter(prefix="/embeddings")
+from ouranos_ml.features.embeddings.create_embeddings.endpoint import register as register_create_embeddings
 
-# Routes
-from ouranos_ml.features.embeddings.create_embeddings.api import create_embeddings
+embeddings_router = APIRouter(prefix="/embeddings")
+register_create_embeddings(embeddings_router)
