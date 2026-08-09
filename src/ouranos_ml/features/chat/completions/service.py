@@ -1,8 +1,7 @@
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
-from dateutil.tz import UTC
 from openai.lib.streaming.chat import ChunkEvent
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
@@ -27,11 +26,23 @@ from ouranos_ml.features.chat.completions.schemas import (
 from ouranos_ml.shared.infra.clients.llm_client import get_openai_client
 
 
+def _empty_response(model: str) -> ChatCompletionsResponse:
+    """Build a stub response with no choices and zero-token usage."""
+    return ChatCompletionsResponse(
+        id=str(uuid4()),
+        created=int(datetime.now(UTC).timestamp()),
+        model=model,
+        choices=[],
+        usage=Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+        system_fingerprint=None,
+    )
+
+
 async def handle_stream(
     query: ChatCompletionsRequest,
 ) -> AsyncGenerator[ChatCompletionChunkResponse]:
     """Streams a chat completion response based on the provided query."""
-    if len(query.messages) == 0:
+    if not query.messages:
         return
 
     async for chunk in _respond_stream(query):
@@ -40,23 +51,18 @@ async def handle_stream(
 
 async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
     """Returns a fully constructed chat completion response."""
-    if len(query.messages) == 0:
-        return ChatCompletionsResponse(
-            id=str(uuid4()),
-            created=int(datetime.now(UTC).timestamp()),
-            model=query.model,
-            choices=[],
-            usage=Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
-            system_fingerprint=None,
-        )
+    if not query.messages:
+        return _empty_response(query.model)
 
     query_with_usage = query.model_copy(update={"stream_options": StreamOptions(include_usage=True)})
     chunks = [chunk async for chunk in _respond_stream(query_with_usage)]
+
+    if not chunks:
+        return _empty_response(query.model)
+
     content = [c.choices[0].delta.content for c in chunks if c.choices and c.choices[0].delta.content]
 
-    usage = (
-        chunks[-1].usage if chunks and chunks[-1].usage else Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-    )
+    usage = chunks[-1].usage if chunks[-1].usage else Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
     return ChatCompletionsResponse(
         id=chunks[-1].id,

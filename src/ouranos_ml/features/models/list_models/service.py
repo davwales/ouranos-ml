@@ -1,6 +1,4 @@
-from datetime import datetime
-
-from dateutil.tz import UTC
+from datetime import UTC, datetime
 
 from ouranos_ml.features.models.list_models.schemas import ListModelsResponse, Model
 from ouranos_ml.shared.infra.clients.llm_client import get_openai_client
