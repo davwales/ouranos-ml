@@ -39,7 +39,7 @@ class PlutusForecastingExperiment(BaseExperiment):
         base_path = "src/experiments/plutus_forecasting"
         features = ["averagePrice", "minPrice", "maxPrice", "volume"]
         prediction_horizon = 1
-        param_space = {
+        param_space: dict[str, list[float | int]] = {
             "learning_rate": [0.0001, 0.001, 0.005, 0.01, 0.05, 0.1],
             "hidden_size": [32, 64, 128, 256, 512],
             "num_layers": [1, 2, 3],

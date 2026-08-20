@@ -14,8 +14,8 @@ class GeneticTuner:
 
     def __init__(
         self,
-        param_space: dict[str, list[float]],
-        harness_factory: Callable[[dict[str, float]], TrainingHarness],
+        param_space: dict[str, list[float | int]],
+        harness_factory: Callable[[dict[str, float | int]], TrainingHarness],
         population_size: int = 20,
         elite_size: int = 2,
         mutation_rate: float = 0.1,
@@ -26,11 +26,11 @@ class GeneticTuner:
         self.mutation_rate = mutation_rate
         self.harness_factory = harness_factory
 
-    def _create_individual(self) -> dict[str, float]:
+    def _create_individual(self) -> dict[str, float | int]:
         """Create a random individual from the parameter space"""
         return {key: random.choice(values) for key, values in self.param_space.items()}
 
-    def _mutate(self, individual: dict[str, float]) -> dict[str, float]:
+    def _mutate(self, individual: dict[str, float | int]) -> dict[str, float | int]:
         """Mutate an individual's parameters"""
         mutated = deepcopy(individual)
         for key in mutated:
@@ -38,7 +38,7 @@ class GeneticTuner:
                 mutated[key] = random.choice(self.param_space[key])
         return mutated
 
-    def _crossover(self, parent1: dict[str, float], parent2: dict[str, float]) -> dict[str, float]:
+    def _crossover(self, parent1: dict[str, float | int], parent2: dict[str, float | int]) -> dict[str, float | int]:
         """Create a child from two parents using uniform crossover"""
         child = {}
         for key in parent1:
@@ -53,7 +53,7 @@ class GeneticTuner:
         train_epochs: int = 10,
         early_stopping: int | None = None,
         file: str | None = None,
-    ) -> dict[str, float]:
+    ) -> dict[str, float | int]:
         """Evolves the hyperparameters by mutating and crossing over individuals in an effort to find the best
         performing values.
 

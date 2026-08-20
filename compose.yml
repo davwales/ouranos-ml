@@ -1,6 +1,6 @@
 services:
   ouranos-ml:
-    image: codeberg.org/ouranos-labs/ouranos-ml:latest
+    image: ghcr.io/davwales/ouranos-ml:latest
     ports:
       - "8000:8000"
     environment:
