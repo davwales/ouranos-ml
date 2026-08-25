@@ -1,22 +1,25 @@
 import json
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
 
-from experiments.plutus_forecasting.model import Model
-from experiments.utils.harness import Harness
+from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.domain.plutus.forecast_point import PlutusForecastPoint
+from ouranos_ml.shared.inference.harness import Harness
+from ouranos_ml.shared.inference.model import Model
 
 
 class ForecastGenerator:
     """Generator used to predict future Plutus datapoints using the model trained as part of the 'plutus_forecasting' experiment."""
 
     def __init__(self) -> None:
-        experiment_path = "src/experiments/plutus_forecasting"
-        file = f"{experiment_path}/params.json"
+        settings = get_settings()
+        model_path = Path(settings.models_dir) / settings.plutus_forecast_model_name
+        params_file = model_path / "params.json"
         params: dict[str, Any] = {}
-        with open(file) as f:
+        with open(params_file) as f:
             params = json.load(f)
 
         model = Model(
@@ -28,7 +31,7 @@ class ForecastGenerator:
             dropout=params["dropout"],
         )
         self.harness = Harness(model)
-        self.harness.load_model(f"{experiment_path}/model.pth")
+        self.harness.load_model(str(model_path / "model.pth"))
 
     def predict_next(self, sequences: list[list[PlutusForecastPoint]]) -> list[PlutusForecastPoint]:
         """Predicts the next point for multiple sequences based on historical data."""

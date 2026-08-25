@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -9,12 +10,13 @@ import torch
 from sklearn.metrics import r2_score
 
 from experiments.base_experiment import BaseExperiment
-from experiments.plutus_forecasting.model import Model
 from experiments.plutus_forecasting.time_series_dataset import TimeSeriesDataset
 from experiments.utils.data_splitters import split_by_bucket
 from experiments.utils.genetic_tuner import GeneticTuner
-from experiments.utils.harness import TrainingHarness
 from experiments.utils.sequences import SequenceConfig, SequenceProcessor
+from ouranos_ml.shared.domain.core.settings import get_settings
+from ouranos_ml.shared.inference.harness import TrainingHarness
+from ouranos_ml.shared.inference.model import Model
 
 
 class PlutusForecastingExperiment(BaseExperiment):
@@ -36,7 +38,8 @@ class PlutusForecastingExperiment(BaseExperiment):
         logging.info("Splitting data...")
         train_df, val_df, test_df = split_by_bucket(df, bucket_field="bucket")
 
-        base_path = "src/experiments/plutus_forecasting"
+        settings = get_settings()
+        base_path = str(Path(settings.models_dir) / settings.plutus_forecast_model_name)
         features = ["averagePrice", "minPrice", "maxPrice", "volume"]
         prediction_horizon = 1
         param_space: dict[str, list[float | int]] = {

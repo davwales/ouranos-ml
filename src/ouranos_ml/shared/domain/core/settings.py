@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     llm_model_ttl: int = 300
     health_check_timeout_seconds: float = 5.0
     port: int = 8000
+    models_dir: str = "models"
+    plutus_forecast_model_name: str = "plutus-forecasting-v1"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

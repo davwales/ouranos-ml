@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 
 dependencies = [
-"fastapi~=0.141.0",
+    "fastapi~=0.141.0",
     "matplotlib~=3.11.0",
     "numpy~=2.5.0",
     "openai~=2.37.0",
@@ -110,7 +110,7 @@ exclude = ["tests/"]
 
 [tool.coverage.run]
 source = ["src/ouranos_ml"]
-omit = ["src/experiments/*"]
+omit = ["src/experiments/*", "src/ouranos_ml/shared/inference/*"]
 
 [tool.coverage.report]
 fail_under = 80
