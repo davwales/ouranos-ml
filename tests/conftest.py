@@ -7,8 +7,6 @@ try:
     import torch  # noqa: F401
 except (ImportError, OSError):
     sys.modules["torch"] = MagicMock()
-    sys.modules.setdefault("experiments", MagicMock())
-    sys.modules.setdefault("experiments.plutus_forecasting", MagicMock())
-    sys.modules.setdefault("experiments.plutus_forecasting.model", MagicMock())
-    sys.modules.setdefault("experiments.utils", MagicMock())
-    sys.modules.setdefault("experiments.utils.harness", MagicMock())
+    sys.modules.setdefault("ouranos_ml.shared.inference", MagicMock())
+    sys.modules.setdefault("ouranos_ml.shared.inference.model", MagicMock())
+    sys.modules.setdefault("ouranos_ml.shared.inference.harness", MagicMock())

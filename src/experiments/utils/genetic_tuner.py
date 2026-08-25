@@ -6,7 +6,7 @@ from copy import deepcopy
 
 from torch.utils.data import DataLoader
 
-from experiments.utils.harness import TrainingHarness
+from ouranos_ml.shared.inference.harness import TrainingHarness
 
 
 class GeneticTuner:
