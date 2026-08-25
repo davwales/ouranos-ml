@@ -64,13 +64,18 @@ async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
 
     usage = chunks[-1].usage if chunks[-1].usage else Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
+    finish_reason = next(
+        (c.choices[0].finish_reason for c in reversed(chunks) if c.choices and c.choices[0].finish_reason),
+        "stop",
+    )
+
     return ChatCompletionsResponse(
         id=chunks[-1].id,
         model=chunks[-1].model,
         created=chunks[-1].created,
         choices=[
             Choice(
-                finish_reason="stop",
+                finish_reason=finish_reason,
                 index=0,
                 message=ChoiceMessage(role=ChatCompletionRole.ASSISTANT, content="".join(content)),
             )
@@ -110,6 +115,9 @@ async def _respond_stream(query: ChatCompletionsRequest) -> AsyncGenerator[ChatC
 
     if include_usage:
         stream_kwargs["stream_options"] = {"include_usage": True}
+
+    if query.response_format is not None:
+        stream_kwargs["response_format"] = query.response_format.model_dump(exclude_none=True, by_alias=True)
 
     async with client.chat.completions.stream(**stream_kwargs) as stream:
         async for event in stream:

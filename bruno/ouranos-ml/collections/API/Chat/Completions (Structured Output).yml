@@ -1,0 +1,60 @@
+info:
+  name: Completions (Structured Output)
+  type: http
+  seq: 3
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/chat/completions"
+  params:
+    - name: ""
+      value: ""
+      type: query
+  body:
+    type: json
+    data: |-
+      {
+        "model": "{{MODEL}}",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Analyze this text and extract a structured analysis: \"The latest release is fantastic, but the documentation is missing some examples.\""
+          }
+        ],
+        "stream": false,
+        "response_format": {
+          "type": "json_schema",
+          "json_schema": {
+            "name": "text_analysis",
+            "description": "Structured analysis of the provided text",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "sentiment": {
+                  "type": "string",
+                  "enum": ["positive", "negative", "neutral"]
+                },
+                "topics": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "confidence": {
+                  "type": "number"
+                }
+              },
+              "required": ["sentiment", "topics", "confidence"],
+              "additionalProperties": false
+            },
+            "strict": true
+          }
+        }
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

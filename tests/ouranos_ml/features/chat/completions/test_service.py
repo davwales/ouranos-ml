@@ -6,6 +6,7 @@ from ouranos_ml.features.chat.completions.schemas import (
     ChatCompletionChunkResponse,
     ChatCompletionRole,
     RequestMessage,
+    ResponseFormatJSONObject,
     Usage,
 )
 from ouranos_ml.features.chat.completions.service import (
@@ -17,7 +18,9 @@ from ouranos_ml.features.chat.completions.service import (
 from tests.ouranos_ml.shared.factories.chat_factories import (
     make_chat_request,
     make_chunk_event,
+    make_json_schema_response_format,
     make_request_message,
+    make_usage_only_chunk_event,
 )
 from tests.ouranos_ml.shared.openai_mocks import make_mock_stream
 
@@ -252,3 +255,211 @@ def test_convert_message_when_invalid_role_should_raise_value_error():
     # Act
     with pytest.raises(ValueError):
         _convert_message(message)
+
+
+@pytest.mark.asyncio
+async def test_handle_stream_when_response_format_set_should_pass_snake_case_dict_to_client():
+    # Arrange
+    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="{")
+    mock_stream = make_mock_stream([chunk])
+    mock_client = MagicMock()
+    mock_client.chat.completions.stream.return_value = mock_stream
+    response_format = make_json_schema_response_format(name="test_schema")
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
+        mock_get_client.return_value = mock_client
+        request = make_chat_request(
+            messages=[make_request_message(role=ChatCompletionRole.USER, content="Hi")],
+            stream=True,
+            response_format=response_format,
+        )
+
+        # Act
+        results = [chunk async for chunk in handle_stream(request)]
+
+    # Assert
+    assert len(results) == 1
+    kwargs = mock_client.chat.completions.stream.call_args.kwargs
+    assert kwargs["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "test_schema",
+            "description": "A test JSON schema",
+            "schema": {"type": "object", "properties": {"answer": {"type": "string"}}},
+            "strict": True,
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_handle_stream_when_response_format_not_set_should_omit_key():
+    # Arrange
+    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
+    mock_stream = make_mock_stream([chunk])
+    mock_client = MagicMock()
+    mock_client.chat.completions.stream.return_value = mock_stream
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
+        mock_get_client.return_value = mock_client
+        request = make_chat_request(
+            messages=[make_request_message(role=ChatCompletionRole.USER, content="Hi")],
+            stream=True,
+        )
+
+        # Act
+        results = [chunk async for chunk in handle_stream(request)]
+
+    # Assert
+    assert len(results) == 1
+    kwargs = mock_client.chat.completions.stream.call_args.kwargs
+    assert "response_format" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_handle_stream_when_response_format_json_object_should_pass_type_only():
+    # Arrange
+    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="{}")
+    mock_stream = make_mock_stream([chunk])
+    mock_client = MagicMock()
+    mock_client.chat.completions.stream.return_value = mock_stream
+    response_format = ResponseFormatJSONObject(type="json_object")
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
+        mock_get_client.return_value = mock_client
+        request = make_chat_request(
+            messages=[make_request_message(role=ChatCompletionRole.USER, content="Hi")],
+            stream=True,
+            response_format=response_format,
+        )
+
+        # Act
+        results = [chunk async for chunk in handle_stream(request)]
+
+    # Assert
+    assert len(results) == 1
+    kwargs = mock_client.chat.completions.stream.call_args.kwargs
+    assert kwargs["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.asyncio
+async def test_handle_when_response_format_set_should_aggregate_json_content():
+    # Arrange
+    chunk1 = make_chunk_event(
+        chunk_id="chatcmpl-1",
+        model="test-model",
+        created=100,
+        delta_content='{"answer": ',
+    )
+    chunk2 = make_chunk_event(
+        chunk_id="chatcmpl-1",
+        model="test-model",
+        created=100,
+        delta_content='"yes"}',
+        usage=MagicMock(prompt_tokens=5, completion_tokens=3, total_tokens=8),
+    )
+    mock_stream = make_mock_stream([chunk1, chunk2])
+    mock_client = MagicMock()
+    mock_client.chat.completions.stream.return_value = mock_stream
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
+        mock_get_client.return_value = mock_client
+        request = make_chat_request(
+            messages=[make_request_message(role=ChatCompletionRole.USER, content="Hi")],
+            response_format=make_json_schema_response_format(),
+        )
+
+        # Act
+        response = await handle(request)
+
+    # Assert
+    assert response.choices[0].message.content == '{"answer": "yes"}'
+
+
+@pytest.mark.asyncio
+async def test_handle_when_chunk_finish_reason_length_should_surface_it():
+    # Arrange
+    chunk = make_chunk_event(
+        chunk_id="chatcmpl-1",
+        model="test-model",
+        created=100,
+        delta_content='{"answer": ',
+        finish_reason="length",
+        usage=MagicMock(prompt_tokens=5, completion_tokens=3, total_tokens=8),
+    )
+    mock_stream = make_mock_stream([chunk])
+    mock_client = MagicMock()
+    mock_client.chat.completions.stream.return_value = mock_stream
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
+        mock_get_client.return_value = mock_client
+        request = make_chat_request(
+            messages=[make_request_message(role=ChatCompletionRole.USER, content="Hi")],
+            response_format=make_json_schema_response_format(),
+        )
+
+        # Act
+        response = await handle(request)
+
+    # Assert
+    assert response.choices[0].finish_reason == "length"
+
+
+@pytest.mark.asyncio
+async def test_handle_when_trailing_usage_chunk_should_keep_prior_finish_reason():
+    # Arrange
+    content_chunk = make_chunk_event(
+        chunk_id="chatcmpl-1",
+        model="test-model",
+        created=100,
+        delta_content='{"answer": "yes"}',
+        finish_reason="stop",
+    )
+    usage_chunk = make_usage_only_chunk_event(
+        chunk_id="chatcmpl-1",
+        model="test-model",
+        created=100,
+        prompt_tokens=5,
+        completion_tokens=3,
+        total_tokens=8,
+    )
+    mock_stream = make_mock_stream([content_chunk, usage_chunk])
+    mock_client = MagicMock()
+    mock_client.chat.completions.stream.return_value = mock_stream
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
+        mock_get_client.return_value = mock_client
+        request = make_chat_request(
+            messages=[make_request_message(role=ChatCompletionRole.USER, content="Hi")],
+            response_format=make_json_schema_response_format(),
+        )
+
+        # Act
+        response = await handle(request)
+
+    # Assert
+    assert response.choices[0].finish_reason == "stop"
+    assert response.choices[0].message.content == '{"answer": "yes"}'
+    assert response.usage.prompt_tokens == 5
+    assert response.usage.completion_tokens == 3
+    assert response.usage.total_tokens == 8
+
+
+@pytest.mark.asyncio
+async def test_handle_when_no_chunk_finish_reason_should_default_to_stop():
+    # Arrange
+    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hi")
+    mock_stream = make_mock_stream([chunk])
+    mock_client = MagicMock()
+    mock_client.chat.completions.stream.return_value = mock_stream
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
+        mock_get_client.return_value = mock_client
+        request = make_chat_request(
+            messages=[make_request_message(role=ChatCompletionRole.USER, content="Hi")],
+        )
+
+        # Act
+        response = await handle(request)
+
+    # Assert
+    assert response.choices[0].finish_reason == "stop"
