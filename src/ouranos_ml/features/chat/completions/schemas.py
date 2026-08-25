@@ -1,7 +1,8 @@
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from ouranos_ml.shared.domain.core.base_schema import BaseSchema
+from pydantic import AliasChoices, Field
 
 
 class ChatCompletionRole(StrEnum):
@@ -27,6 +28,57 @@ class StreamOptions(BaseSchema):
     with total token usage. All other chunks will include a null usage field."""
 
 
+class JSONSchemaConfig(BaseSchema):
+    """Structured Outputs configuration, including the JSON Schema to conform to."""
+
+    name: str
+    """The name of the response format. Must be a-z, A-Z, 0-9, or contain
+    underscores and dashes, with a maximum length of 64."""
+
+    description: str | None = None
+    """A description of what the response format is for, used by the model to
+    determine how to respond in the format."""
+
+    strict: bool | None = None
+    """Whether to enable strict schema adherence when generating the output.
+    If set to true, the model will always follow the exact schema defined in
+    the schema field."""
+
+    json_schema: dict[str, Any] | None = Field(default=None, alias="schema")
+    """The schema for the response format, described as a JSON Schema object.
+
+    Uses the OpenAI wire name ``schema``; the Python field name avoids shadowing
+    the deprecated ``BaseModel.schema`` classmethod.
+    """
+
+
+class ResponseFormatText(BaseSchema):
+    """Default response format used to generate text responses."""
+
+    type: Literal["text"] = "text"
+
+
+class ResponseFormatJSONObject(BaseSchema):
+    """JSON object response format, forcing the model to output valid JSON."""
+
+    type: Literal["json_object"]
+
+
+class ResponseFormatJSONSchema(BaseSchema):
+    """JSON Schema response format used to generate structured JSON responses."""
+
+    type: Literal["json_schema"]
+    json_schema: JSONSchemaConfig = Field(
+        alias="json_schema", validation_alias=AliasChoices("jsonSchema", "json_schema")
+    )
+
+
+ResponseFormat = Annotated[
+    ResponseFormatText | ResponseFormatJSONObject | ResponseFormatJSONSchema,
+    Field(discriminator="type"),
+]
+
+
 class ChatCompletionsRequest(BaseSchema):
     """Request for generating a chat completion."""
 
@@ -38,6 +90,7 @@ class ChatCompletionsRequest(BaseSchema):
     max_completion_tokens: int | None = None
     stream: bool | None = False
     stream_options: StreamOptions | None = None
+    response_format: ResponseFormat | None = None
     stop: str | list[str] | None = None
     presence_penalty: float | None = 0.0
     frequency_penalty: float | None = 0.0

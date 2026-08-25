@@ -22,7 +22,10 @@ from ouranos_ml.features.chat.completions.schemas import (
     ChatCompletionsResponse,
     Choice,
     ChoiceMessage,
+    JSONSchemaConfig,
     RequestMessage,
+    ResponseFormat,
+    ResponseFormatJSONSchema,
     Usage,
 )
 
@@ -36,6 +39,22 @@ def make_request_message(
     return RequestMessage(role=role, content=content)
 
 
+def make_json_schema_response_format(
+    *,
+    name: str = "test_schema",
+    description: str | None = "A test JSON schema",
+    schema: dict | None = None,
+    strict: bool | None = True,
+) -> ResponseFormatJSONSchema:
+    """Create a json_schema response format with sensible defaults."""
+    if schema is None:
+        schema = {"type": "object", "properties": {"answer": {"type": "string"}}}
+    return ResponseFormatJSONSchema(
+        type="json_schema",
+        json_schema=JSONSchemaConfig(name=name, description=description, schema=schema, strict=strict),
+    )
+
+
 def make_chat_request(
     *,
     model: str = "test-model",
@@ -43,6 +62,7 @@ def make_chat_request(
     stream: bool = False,
     temperature: float = 1.0,
     max_completion_tokens: int | None = None,
+    response_format: ResponseFormat | None = None,
 ) -> ChatCompletionsRequest:
     """Create a ChatCompletionsRequest with sensible defaults."""
     return ChatCompletionsRequest(
@@ -51,6 +71,7 @@ def make_chat_request(
         stream=stream,
         temperature=temperature,
         max_completion_tokens=max_completion_tokens,
+        response_format=response_format,
     )
 
 
@@ -111,6 +132,39 @@ def make_chunk_event(
         choices=[choice],
         system_fingerprint=system_fingerprint,
         usage=chunk_usage,
+        object="chat.completion.chunk",
+    )
+
+    snapshot = _make_snapshot(chunk_id=chunk_id, model=model, created=created)
+    return ChunkEvent(chunk=chunk, snapshot=snapshot, type="chunk")
+
+
+def make_usage_only_chunk_event(
+    *,
+    chunk_id: str = "chatcmpl-001",
+    model: str = "test-model",
+    created: int = 1700000000,
+    system_fingerprint: str | None = "fp_abc123",
+    prompt_tokens: int = 10,
+    completion_tokens: int = 5,
+    total_tokens: int = 15,
+) -> ChunkEvent:
+    """Create a synthetic usage-only ChunkEvent with no choices.
+
+    Matches the final chunk OpenAI emits when stream_options.include_usage is
+    set: it carries token usage but no choices.
+    """
+    chunk = ChatCompletionChunk(
+        id=chunk_id,
+        model=model,
+        created=created,
+        choices=[],
+        system_fingerprint=system_fingerprint,
+        usage=CompletionUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+        ),
         object="chat.completion.chunk",
     )
 
