@@ -7,6 +7,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+logger = logging.getLogger(__name__)
+
 
 class _StepScheduler(Protocol):
     """Protocol used to define schedulers that can be used with the harness."""
@@ -25,7 +27,7 @@ class Harness:
         self.model = model
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
-        logging.debug(f"Initialized harness with device '{self.device}'")
+        logger.debug("Initialized harness with device '%s'", self.device)
 
     def predict(self, input: torch.Tensor) -> np.ndarray:
         """Predicts the next value given an input sequence."""
@@ -37,7 +39,7 @@ class Harness:
     def load_model(self, path: str) -> None:
         """Loads a saved model from the given file."""
         if not os.path.exists(path):
-            logging.error(f"No model found at path '{path}'.")
+            logger.error("No model found at path '%s'.", path)
             return
         self.model.load_state_dict(torch.load(path, weights_only=True, map_location=self.device))
 
@@ -93,9 +95,11 @@ class TrainingHarness(Harness):
                 best_model = self.model.state_dict().copy()
                 additional_message = "<--- New Best"
             if early_stopping and epochs_no_improve >= early_stopping:
-                logging.debug(f"Early stopping at epoch {_epoch}")
+                logger.debug("Early stopping at epoch %s", _epoch)
                 break
-            logging.debug(f"Epoch: {_epoch} Train Loss: {train_loss:.4f} Val Loss: {val_loss:.4f} {additional_message}")
+            logger.debug(
+                "Epoch: %s Train Loss: %.4f Val Loss: %.4f %s", _epoch, train_loss, val_loss, additional_message
+            )
 
         if best_model is None:
             raise ValueError("Failed to train a model.")

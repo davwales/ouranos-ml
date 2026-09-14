@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import structlog
 from openai.lib.streaming.chat import ChunkEvent
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
@@ -25,6 +26,8 @@ from ouranos_ml.features.chat.completions.schemas import (
 )
 from ouranos_ml.shared.infra.clients.llm_client import get_openai_client
 
+logger = structlog.get_logger(__name__)
+
 
 def _empty_response(model: str) -> ChatCompletionsResponse:
     """Build a stub response with no choices and zero-token usage."""
@@ -43,8 +46,15 @@ async def handle_stream(
 ) -> AsyncGenerator[ChatCompletionChunkResponse]:
     """Streams a chat completion response based on the provided query."""
     if not query.messages:
+        logger.debug("chat completion skipped, messages empty", model=query.model)
         return
 
+    logger.debug(
+        "chat completion requested",
+        model=query.model,
+        message_count=len(query.messages),
+        stream=True,
+    )
     async for chunk in _respond_stream(query):
         yield chunk
 
@@ -52,8 +62,15 @@ async def handle_stream(
 async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
     """Returns a fully constructed chat completion response."""
     if not query.messages:
+        logger.debug("chat completion skipped, messages empty", model=query.model)
         return _empty_response(query.model)
 
+    logger.debug(
+        "chat completion requested",
+        model=query.model,
+        message_count=len(query.messages),
+        stream=False,
+    )
     query_with_usage = query.model_copy(update={"stream_options": StreamOptions(include_usage=True)})
     chunks = [chunk async for chunk in _respond_stream(query_with_usage)]
 
@@ -67,6 +84,14 @@ async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
     finish_reason = next(
         (c.choices[0].finish_reason for c in reversed(chunks) if c.choices and c.choices[0].finish_reason),
         "stop",
+    )
+
+    logger.debug(
+        "chat completion complete",
+        model=query.model,
+        finish_reason=finish_reason,
+        prompt_tokens=usage.prompt_tokens,
+        completion_tokens=usage.completion_tokens,
     )
 
     return ChatCompletionsResponse(
@@ -119,23 +144,27 @@ async def _respond_stream(query: ChatCompletionsRequest) -> AsyncGenerator[ChatC
     if query.response_format is not None:
         stream_kwargs["response_format"] = query.response_format.model_dump(exclude_none=True, by_alias=True)
 
-    async with client.chat.completions.stream(**stream_kwargs) as stream:
-        async for event in stream:
-            if isinstance(event, ChunkEvent):
-                chunk = event.chunk
-                yield ChatCompletionChunkResponse(
-                    id=chunk.id,
-                    created=chunk.created,
-                    model=chunk.model,
-                    system_fingerprint=chunk.system_fingerprint,
-                    choices=[
-                        ChunkChoice(
-                            index=c.index, delta=ChunkDelta(content=c.delta.content), finish_reason=c.finish_reason
-                        )
-                        for c in chunk.choices
-                    ],
-                    usage=_extract_usage(chunk.usage) if include_usage else None,
-                )
+    try:
+        async with client.chat.completions.stream(**stream_kwargs) as stream:
+            async for event in stream:
+                if isinstance(event, ChunkEvent):
+                    chunk = event.chunk
+                    yield ChatCompletionChunkResponse(
+                        id=chunk.id,
+                        created=chunk.created,
+                        model=chunk.model,
+                        system_fingerprint=chunk.system_fingerprint,
+                        choices=[
+                            ChunkChoice(
+                                index=c.index, delta=ChunkDelta(content=c.delta.content), finish_reason=c.finish_reason
+                            )
+                            for c in chunk.choices
+                        ],
+                        usage=_extract_usage(chunk.usage) if include_usage else None,
+                    )
+    except Exception:
+        logger.error("chat completion upstream failed", model=query.model, exc_info=True)
+        raise
 
 
 def _convert_message(message: RequestMessage) -> ChatCompletionMessageParam:

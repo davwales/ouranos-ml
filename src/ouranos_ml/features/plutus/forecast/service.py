@@ -1,14 +1,16 @@
 import json
 from pathlib import Path
-from typing import Any
 
 import numpy as np
+import structlog
 import torch
 
 from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.domain.plutus.forecast_point import PlutusForecastPoint
 from ouranos_ml.shared.inference.harness import Harness
 from ouranos_ml.shared.inference.model import Model
+
+logger = structlog.get_logger(__name__)
 
 
 class ForecastGenerator:
@@ -17,10 +19,15 @@ class ForecastGenerator:
     def __init__(self) -> None:
         settings = get_settings()
         model_path = Path(settings.models_dir) / settings.plutus_forecast_model_name
+        logger.info("loading forecast model", model_path=str(model_path))
         params_file = model_path / "params.json"
-        params: dict[str, Any] = {}
-        with open(params_file) as f:
-            params = json.load(f)
+
+        try:
+            with open(params_file) as f:
+                params = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.error("forecast model params load failed", model_path=str(params_file), exc_info=exc)
+            raise
 
         model = Model(
             input_size=4,
@@ -37,6 +44,7 @@ class ForecastGenerator:
         """Predicts the next point for multiple sequences based on historical data."""
         if not all(len(seq) == 30 for seq in sequences):
             invalid_lengths = [i for i, seq in enumerate(sequences) if len(seq) != 30]
+            logger.warning("invalid forecast sequence lengths", invalid_indices=invalid_lengths)
             raise ValueError(f"All sequences must have 30 points. Invalid sequences at indices: {invalid_lengths}")
 
         batch_sequences = np.array(
@@ -61,6 +69,7 @@ class ForecastGenerator:
 
 def forecast_points(sequences: list[list[PlutusForecastPoint]], numPredictions: int) -> list[list[PlutusForecastPoint]]:
     """Forecast future points for multiple sequences based on historical data."""
+    logger.info("forecast requested", sequence_count=len(sequences), num_predictions=numPredictions)
     generator = ForecastGenerator()
     all_predictions: list[list[PlutusForecastPoint]] = [[] for _ in sequences]
     current_sequences = [seq.copy() for seq in sequences]
@@ -72,4 +81,9 @@ def forecast_points(sequences: list[list[PlutusForecastPoint]], numPredictions: 
             sequence.pop(0)
             all_predictions[i].append(next_point)
 
+    logger.debug(
+        "forecast complete",
+        sequence_count=len(sequences),
+        prediction_count=len(sequences) * numPredictions,
+    )
     return all_predictions

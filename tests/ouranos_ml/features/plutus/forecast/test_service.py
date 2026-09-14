@@ -1,10 +1,13 @@
+import logging
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
 from ouranos_ml.features.plutus.forecast.service import ForecastGenerator, forecast_points
+from ouranos_ml.shared.domain.core.settings import Settings
 from ouranos_ml.shared.domain.plutus.forecast_point import PlutusForecastPoint
+from ouranos_ml.shared.logging import configure_logging
 from tests.ouranos_ml.shared.factories.forecast_factories import make_forecast_point, make_sequence
 
 
@@ -43,6 +46,23 @@ def test_forecast_points_when_valid_sequences_should_return_predictions():
     assert len(result) == 1
     assert len(result[0]) == 3
     assert result[0][0].average_price == 42.0
+
+
+def test_predict_next_when_sequence_not_30_points_should_log_warning_and_raise(
+    caplog: pytest.LogCaptureFixture,
+):
+    # Arrange
+    configure_logging(Settings())
+    uniform_point = PlutusForecastPoint(average_price=10.0, min_price=10.0, max_price=10.0, volume=10.0)
+    short_sequence = [uniform_point] * 20
+    generator = ForecastGenerator.__new__(ForecastGenerator)
+
+    # Act & Assert
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ValueError, match="30 points"):
+            generator.predict_next([short_sequence])
+
+    assert "invalid forecast sequence lengths" in caplog.text
 
 
 def test_forecast_points_when_sequence_not_30_points_should_raise_value_error():
