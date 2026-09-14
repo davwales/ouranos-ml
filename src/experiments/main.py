@@ -3,8 +3,10 @@ import sys
 
 from experiments.base_experiment import BaseExperiment
 from experiments.plutus_forecasting.experiment import PlutusForecastingExperiment
+from ouranos_ml.shared.domain.core.settings import get_settings
+from ouranos_ml.shared.logging import configure_logging
 
-logging.basicConfig(level=logging.DEBUG)
+configure_logging(get_settings())
 
 
 def main() -> None:

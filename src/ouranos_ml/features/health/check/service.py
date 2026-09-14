@@ -1,7 +1,8 @@
 import asyncio
-import logging
 from collections.abc import Callable
 from typing import Any, NamedTuple
+
+import structlog
 
 from ouranos_ml.features.health.check.schemas import (
     CheckStatus,
@@ -13,7 +14,7 @@ from ouranos_ml.features.health.check.schemas import (
 from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.infra.clients.llm_client import get_openai_client
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class CheckDef(NamedTuple):
@@ -88,6 +89,9 @@ async def handle() -> HealthResponse:
 
     results = await asyncio.gather(*(_run_check(entry) for entry in _CHECKS))
     checks = dict(results)
+
+    for name, check in checks.items():
+        logger.debug("health check complete", check=name, status=check.status.value)
 
     if not checks:
         status = ServiceStatus.HEALTHY
