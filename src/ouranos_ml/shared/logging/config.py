@@ -8,6 +8,7 @@ from structlog.typing import EventDict, FilteringBoundLogger, Processor
 
 from ouranos_ml.shared.domain.core.settings import Settings
 from ouranos_ml.shared.logging.loki import LokiPushHandler, normalize_level_name
+from ouranos_ml.shared.logging.trace_context import add_trace_context
 
 _NOISY_LOGGERS: tuple[str, ...] = ("httpx", "openai", "matplotlib")
 
@@ -43,7 +44,7 @@ def configure_logging(settings: Settings) -> None:
     console = ConsoleHandler(sys.stdout)
     console.setFormatter(
         _build_formatter(
-            structlog.processors.JSONRenderer() if use_json else structlog.dev.ConsoleRenderer(),
+            _json_renderer() if use_json else structlog.dev.ConsoleRenderer(),
             pre_chain,
         )
     )
@@ -56,17 +57,27 @@ def configure_logging(settings: Settings) -> None:
             tenant_id=settings.loki_tenant_id,
             app_name=settings.log_app_name,
         )
-        loki.setFormatter(_build_formatter(structlog.processors.JSONRenderer(), pre_chain))
+        loki.setFormatter(_build_formatter(_json_renderer(), pre_chain))
         root.addHandler(loki)
 
     for name in _NOISY_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
+def _json_renderer() -> structlog.processors.JSONRenderer:
+    """Build the compact JSON renderer shared by console and Loki output.
+
+    Compact separators keep rendered lines shape-compatible with the Grafana
+    Loki derived field that links "TraceId" body keys to Tempo traces.
+    """
+    return structlog.processors.JSONRenderer(separators=(",", ":"))
+
+
 def _build_pre_chain() -> list[Processor]:
     """Build the processor chain shared by structlog and stdlib log records."""
     return [
         structlog.contextvars.merge_contextvars,
+        add_trace_context,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
         _normalize_level,
