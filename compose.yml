@@ -9,6 +9,16 @@ services:
       LLM_MODEL_TTL: 300
       LOG_LEVEL: INFO
       LOKI_BASE_URL: http://ouranos.local:3100
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://ouranos.local:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: ouranos-ml
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=Production
+      OTEL_TRACES_SAMPLER: parentbased_traceidratio
+      OTEL_TRACES_SAMPLER_ARG: "1.0"
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: health
+      OTEL_PYTHON_HTTPX_EXCLUDED_URLS: ".*loki/api/v1/push.*"
     deploy:
       resources:
         reservations:

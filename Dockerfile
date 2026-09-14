@@ -13,5 +13,6 @@ RUN uv sync --frozen --no-dev
 
 EXPOSE 8000
 ENV PYTHONUNBUFFERED=1
+ENV OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 
-CMD ["uv", "run", "ouranos_ml"]
+CMD ["uv", "run", "opentelemetry-instrument", "uv", "run", "ouranos_ml"]
