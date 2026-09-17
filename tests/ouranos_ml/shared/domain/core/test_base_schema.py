@@ -30,19 +30,22 @@ class SimpleObj:
         self.is_active = is_active
 
 
-def test_base_schema_when_snake_case_fields_should_serialize_to_camel_case() -> None:
-    """Test that BaseSchema serializes snake_case to camelCase."""
+def test_base_schema_when_snake_case_fields_should_serialize_by_field_name() -> None:
+    """Test that BaseSchema serializes with snake_case keys on both dump paths."""
     # Arrange
     instance = SimpleSchema(user_name="alice", is_active=True)
 
     # Act
     dumped = instance.model_dump(by_alias=True)
+    dumped_default = instance.model_dump()
+    dumped_json = instance.model_dump_json()
 
     # Assert
-    assert "userName" in dumped
-    assert "isActive" in dumped
-    assert dumped["userName"] == "alice"
-    assert dumped["isActive"] is True
+    assert dumped["user_name"] == "alice"
+    assert dumped["is_active"] is True
+    assert "userName" not in dumped
+    assert "user_name" in dumped_default
+    assert '"user_name":"alice"' in dumped_json
 
 
 def test_base_schema_when_camel_case_input_should_deserialize_to_snake_case() -> None:

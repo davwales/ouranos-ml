@@ -180,5 +180,8 @@ AGENTS.md
 datasets/*
 .aider*
 
+# Local machine overrides
+compose.override.yml
+
 !**/.gitkeep
 .vscode/

@@ -47,6 +47,7 @@ def _middleware_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRec
     return [r for r in caplog.records if r.name == _MIDDLEWARE_LOGGER]
 
 
+@pytest.mark.asyncio
 async def test_middleware_when_request_completes_should_log_completion_event(
     client: AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -71,6 +72,7 @@ async def test_middleware_when_request_completes_should_log_completion_event(
     assert event["request_id"]
 
 
+@pytest.mark.asyncio
 async def test_middleware_when_health_polled_should_not_log(
     client: AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -87,6 +89,7 @@ async def test_middleware_when_health_polled_should_not_log(
     assert _middleware_records(caplog) == []
 
 
+@pytest.mark.asyncio
 async def test_middleware_when_handler_raises_should_log_error_and_return_500(
     client: AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -108,6 +111,7 @@ async def test_middleware_when_handler_raises_should_log_error_and_return_500(
     assert "RuntimeError" in event["exception"]
 
 
+@pytest.mark.asyncio
 async def test_middleware_when_two_requests_should_bind_distinct_request_ids(
     client: AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:

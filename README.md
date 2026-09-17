@@ -4,9 +4,9 @@
 
 This project houses both the experimentation and hosting stages of Ouranos machine learning projects. These projects are used to facilitate intelligent features in the Ouranos Pantheon application, such as providing chat completions for the Hermes module.
 
-## Prerequistites
+## Prerequisites
 
-- You have must have `uv` installed
+- You must have `uv` installed
 
 ## Usage
 

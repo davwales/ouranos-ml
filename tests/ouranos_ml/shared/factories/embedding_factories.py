@@ -39,6 +39,6 @@ def make_embedding_response(
     """Create a CreateEmbeddingsResponse with sensible defaults."""
     return CreateEmbeddingsResponse(
         model=model,
-        data=embeddings or [make_embedding()],
+        data=embeddings if embeddings is not None else [make_embedding()],
         usage=Usage(prompt_tokens=prompt_tokens, total_tokens=total_tokens),
     )

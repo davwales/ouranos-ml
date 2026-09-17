@@ -38,7 +38,7 @@ def test_forecast_request_when_num_predictions_missing_should_raise_validation_e
         ForecastRequest(points=points)
 
 
-def test_forecast_request_when_serialized_should_use_camel_case():
+def test_forecast_request_when_serialized_should_use_field_names():
     # Arrange
     request = make_forecast_request(num_predictions=5)
 
@@ -46,11 +46,11 @@ def test_forecast_request_when_serialized_should_use_camel_case():
     data = request.model_dump(by_alias=True)
 
     # Assert
-    assert "numPredictions" in data
-    assert "num_predictions" not in data
+    assert "num_predictions" in data
+    assert "numPredictions" not in data
 
 
-def test_plutus_forecast_point_when_serialized_should_use_camel_case():
+def test_plutus_forecast_point_when_serialized_should_use_field_names():
     # Arrange
     point = make_forecast_point()
 
@@ -58,6 +58,6 @@ def test_plutus_forecast_point_when_serialized_should_use_camel_case():
     data = point.model_dump(by_alias=True)
 
     # Assert
-    assert "averagePrice" in data
-    assert "minPrice" in data
-    assert "maxPrice" in data
+    assert "average_price" in data
+    assert "min_price" in data
+    assert "max_price" in data

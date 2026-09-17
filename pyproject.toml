@@ -119,7 +119,7 @@ exclude = ["tests/", ".local/"]
 
 [tool.coverage.run]
 source = ["src/ouranos_ml"]
-omit = ["src/experiments/*", "src/ouranos_ml/shared/inference/*"]
+omit = ["src/experiments/*"]
 
 [tool.coverage.report]
 fail_under = 80

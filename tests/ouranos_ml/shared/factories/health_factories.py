@@ -35,7 +35,8 @@ def make_health_response(
     return HealthResponse(
         status=status,
         checks=checks
-        or {
+        if checks is not None
+        else {
             "llm": make_health_check(status=CheckStatus.HEALTHY, description="LLM backend is reachable"),
             "gpu": make_health_check(
                 status=CheckStatus.HEALTHY,

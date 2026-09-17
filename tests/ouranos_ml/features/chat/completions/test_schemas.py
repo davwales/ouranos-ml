@@ -84,7 +84,7 @@ def test_chat_completions_request_when_stream_options_provided_should_serialize(
     data = request.model_dump(by_alias=True)
 
     # Assert
-    assert data["streamOptions"] == {"includeUsage": True}
+    assert data["stream_options"] == {"include_usage": True}
 
 
 def test_stream_options_when_default_should_have_include_usage_false():
@@ -95,7 +95,7 @@ def test_stream_options_when_default_should_have_include_usage_false():
     data = options.model_dump(by_alias=True)
 
     # Assert
-    assert data["includeUsage"] is False
+    assert data["include_usage"] is False
 
 
 def test_usage_when_created_should_serialize_all_token_counts():
@@ -106,7 +106,7 @@ def test_usage_when_created_should_serialize_all_token_counts():
     data = usage.model_dump(by_alias=True)
 
     # Assert
-    assert data == {"promptTokens": 5, "completionTokens": 3, "totalTokens": 8}
+    assert data == {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
 
 
 def test_chat_completions_request_when_response_format_omitted_should_default_to_none():
@@ -233,7 +233,7 @@ def test_response_format_json_schema_when_serialized_should_match_openai_wire_fo
     }
 
 
-def test_chat_completions_request_when_response_format_provided_should_serialize_camel_case():
+def test_chat_completions_request_when_response_format_provided_should_serialize_openai_wire_format():
     # Arrange
     request = ChatCompletionsRequest(
         model="test-model",
@@ -245,7 +245,7 @@ def test_chat_completions_request_when_response_format_provided_should_serialize
     data = request.model_dump(by_alias=True)
 
     # Assert
-    assert data["responseFormat"] == {
+    assert data["response_format"] == {
         "type": "json_schema",
         "json_schema": {
             "name": "test_schema",

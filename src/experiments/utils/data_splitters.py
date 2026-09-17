@@ -3,14 +3,6 @@ from typing import Any
 from pandas import DataFrame
 
 
-def split(df: DataFrame, val_ratio: float = 0.1, test_ratio: float = 0.1) -> tuple[DataFrame, DataFrame, DataFrame]:
-    """Splits a DataFrame into training, validation, and testing sets"""
-    n = len(df)
-    test_idx = int(n * (1.0 - test_ratio))
-    val_idx = int(n * (1.0 - test_ratio - val_ratio))
-    return df[:val_idx], df[val_idx:test_idx], df[test_idx:]
-
-
 def split_by_bucket(
     df: DataFrame, bucket_field: str, val_ratio: float = 0.1, test_ratio: float = 0.1
 ) -> tuple[DataFrame, DataFrame, DataFrame]:
