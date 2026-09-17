@@ -25,7 +25,7 @@ def test_model_when_default_should_have_owned_by_ouranos_ml():
     assert result == "ouranos-ml"
 
 
-def test_model_when_serialized_should_use_camel_case():
+def test_model_when_serialized_should_use_field_names():
     # Arrange
     model = Model(id="test-model", created=1700000000, owned_by="org-a")
 
@@ -33,8 +33,9 @@ def test_model_when_serialized_should_use_camel_case():
     data = model.model_dump(by_alias=True)
 
     # Assert
-    assert "ownedBy" in data
-    assert data["ownedBy"] == "org-a"
+    assert "owned_by" in data
+    assert data["owned_by"] == "org-a"
+    assert "ownedBy" not in data
 
 
 def test_model_when_id_missing_should_raise_validation_error():

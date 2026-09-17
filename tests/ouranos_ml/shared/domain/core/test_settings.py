@@ -26,8 +26,6 @@ def test_settings_when_defaults_should_have_expected_values() -> None:
     # Assert
     assert defaults["port"].default == 8000
     assert defaults["llm_openai_base_url"].default == "http://localhost:11434/v1"
-    assert defaults["llm_base_url"].default == "localhost:11434"
-    assert defaults["llm_model_ttl"].default == 300
     assert defaults["health_check_timeout_seconds"].default == 5.0
     assert defaults["log_level"].default == "INFO"
     assert defaults["log_json"].default is None
@@ -61,6 +59,20 @@ def test_get_settings_when_cache_cleared_should_return_fresh_instance() -> None:
 
     # Assert
     assert first is not second
+
+
+def test_settings_when_env_file_fixture_active_should_ignore_dot_env() -> None:
+    """Test that the hermetic_settings fixture disables .env file loading."""
+    # Arrange
+    get_settings.cache_clear()
+
+    # Act
+    settings = Settings()
+
+    # Assert
+    assert settings.port == 8000
+    assert settings.loki_base_url == ""
+    assert settings.log_level == "INFO"
 
 
 def test_settings_when_loki_env_vars_set_should_parse_logging_fields(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,6 +1,7 @@
 """Shared fixtures for the logging package tests."""
 
 import logging
+from collections.abc import Iterator
 
 import pytest
 import structlog
@@ -9,7 +10,7 @@ from ouranos_ml.shared.logging.loki import LokiPushHandler
 
 
 @pytest.fixture(autouse=True)
-def isolate_logging() -> None:
+def isolate_logging() -> Iterator[None]:
     """Snapshot and restore global logging and structlog state around each test."""
     saved_config = structlog.get_config()
     saved_handlers = logging.root.handlers[:]

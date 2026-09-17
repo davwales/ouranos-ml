@@ -4,9 +4,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      LLM_BASE_URL: host.docker.internal:11434
       LLM_OPENAI_BASE_URL: http://host.docker.internal:11434/v1
-      LLM_MODEL_TTL: 300
       LOG_LEVEL: INFO
       LOKI_BASE_URL: http://ouranos.local:3100
       OTEL_EXPORTER_OTLP_ENDPOINT: http://ouranos.local:4318

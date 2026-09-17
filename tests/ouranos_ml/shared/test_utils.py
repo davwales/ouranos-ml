@@ -60,10 +60,10 @@ def test_server_side_event_when_complex_model_should_dump_json_correctly() -> No
     # Assert
     expected = f"data: {model.model_dump_json()}\n\n"
     assert result == expected
-    assert "outer_name" in model.model_dump_json() or "outerName" in model.model_dump_json()
+    assert '"outer_name":"test"' in result
 
 
-def test_done_event_should_return_done_string() -> None:
+def test_done_event_when_called_should_return_done_string() -> None:
     """Test done event returns correct SSE termination string."""
     # Arrange
 

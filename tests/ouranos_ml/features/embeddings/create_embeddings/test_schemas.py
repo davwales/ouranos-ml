@@ -40,7 +40,7 @@ def test_create_embeddings_request_when_model_missing_should_raise_validation_er
         CreateEmbeddingsRequest.model_validate(input_data)
 
 
-def test_create_embeddings_request_when_serialized_should_use_camel_case():
+def test_create_embeddings_request_when_serialized_should_use_field_names():
     # Arrange
     request = CreateEmbeddingsRequest(model="test-model", input="hello")
 
@@ -48,7 +48,6 @@ def test_create_embeddings_request_when_serialized_should_use_camel_case():
     data = request.model_dump(by_alias=True)
 
     # Assert
-    assert "promptTokens" not in data
     assert data["model"] == "test-model"
     assert data["input"] == "hello"
 
@@ -72,7 +71,7 @@ def test_usage_when_created_should_include_prompt_and_total_tokens():
     data = usage.model_dump(by_alias=True)
 
     # Assert
-    assert data == {"promptTokens": 10, "totalTokens": 10}
+    assert data == {"prompt_tokens": 10, "total_tokens": 10}
 
 
 def test_create_embeddings_response_when_default_should_have_object_list():

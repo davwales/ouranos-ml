@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 import structlog
 
 from ouranos_ml.features.models.list_models.schemas import ListModelsResponse, Model
@@ -21,7 +19,5 @@ async def handle() -> ListModelsResponse:
 
     logger.debug("models list complete", model_count=len(models))
     return ListModelsResponse(
-        data=[
-            Model(id=model.id, owned_by=model.owned_by, created=int(datetime.now(UTC).timestamp())) for model in models
-        ]
+        data=[Model(id=model.id, owned_by=model.owned_by, created=model.created) for model in models]
     )

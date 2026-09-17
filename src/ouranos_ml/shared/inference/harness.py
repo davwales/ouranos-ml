@@ -40,7 +40,7 @@ class Harness:
         """Loads a saved model from the given file."""
         if not os.path.exists(path):
             logger.error("No model found at path '%s'.", path)
-            return
+            raise FileNotFoundError(path)
         self.model.load_state_dict(torch.load(path, weights_only=True, map_location=self.device))
 
     def save_model(self, path: str) -> None:
@@ -92,7 +92,7 @@ class TrainingHarness(Harness):
             if val_loss < best_val_loss:
                 epochs_no_improve = 0
                 best_val_loss = val_loss
-                best_model = self.model.state_dict().copy()
+                best_model = {key: value.detach().clone() for key, value in self.model.state_dict().items()}
                 additional_message = "<--- New Best"
             if early_stopping and epochs_no_improve >= early_stopping:
                 logger.debug("Early stopping at epoch %s", _epoch)

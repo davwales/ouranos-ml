@@ -130,7 +130,6 @@ class ChatCompletionsResponse(BaseSchema):
     model: str
     choices: list[Choice]
     usage: Usage
-    stats: dict[str, Any] = {}
     system_fingerprint: str | None
 
 

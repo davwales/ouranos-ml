@@ -38,6 +38,7 @@ async def test_embeddings_endpoint_when_post_with_valid_body_should_return_200(a
 
     # Assert
     assert response.status_code == 200
+    mock_client.embeddings.create.assert_awaited_once_with(model="test", input="hello")
 
 
 @pytest.mark.asyncio
@@ -67,6 +68,9 @@ async def test_embeddings_endpoint_when_post_should_return_embeddings_shape(asyn
     assert "data" in body
     assert "model" in body
     assert "usage" in body
+    assert body["usage"]["prompt_tokens"] == 5
+    assert body["usage"]["total_tokens"] == 5
+    assert "promptTokens" not in body["usage"]
 
 
 @pytest.mark.asyncio

@@ -42,7 +42,11 @@ async def test_completions_endpoint_when_stream_false_should_return_200_json(asy
 
     # Assert
     assert response.status_code == 200
-    assert "choices" in response.json()
+    body = response.json()
+    assert "system_fingerprint" in body
+    assert "systemFingerprint" not in body
+    assert "finish_reason" in body["choices"][0]
+    assert "finishReason" not in body["choices"][0]
 
 
 @pytest.mark.asyncio
@@ -54,11 +58,13 @@ async def test_completions_endpoint_when_empty_messages_should_return_200_with_e
     }
 
     # Act
-    response = await async_client.post("/chat/completions", json=payload)
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
+        response = await async_client.post("/chat/completions", json=payload)
 
     # Assert
     assert response.status_code == 200
     assert response.json()["choices"] == []
+    mock_get_client.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -107,7 +113,7 @@ async def test_completions_endpoint_when_stream_true_should_contain_done_event(a
 
 
 @pytest.mark.asyncio
-async def test_completions_endpoint_when_stream_true_should_contain_data_events(async_client):
+async def test_completions_endpoint_when_stream_true_should_yield_chunk_events(async_client):
     # Arrange
     chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
     mock_stream = make_mock_stream([chunk])
@@ -125,8 +131,10 @@ async def test_completions_endpoint_when_stream_true_should_contain_data_events(
         response = await async_client.post("/chat/completions", json=payload)
 
     # Assert
-    lines = [line for line in response.text.split("\n") if line.startswith("data:")]
-    assert any("data: [DONE]" not in line for line in lines)
+    lines = [line for line in response.text.split("\n") if line.startswith("data:") and "[DONE]" not in line]
+    assert len(lines) == 1
+    assert '"finish_reason"' in lines[0]
+    assert '"finishReason"' not in lines[0]
 
 
 @pytest.mark.asyncio

@@ -22,5 +22,5 @@ def make_list_models_response(
 ) -> ListModelsResponse:
     """Create a ListModelsResponse with sensible defaults."""
     return ListModelsResponse(
-        data=models or [make_model(), make_model(model_id="test-model-2")],
+        data=models if models is not None else [make_model(), make_model(model_id="test-model-2")],
     )

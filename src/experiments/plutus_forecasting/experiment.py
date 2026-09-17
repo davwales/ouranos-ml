@@ -1,7 +1,9 @@
+import json
 import logging
+import os
+import random
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -26,7 +28,11 @@ class PlutusForecastingExperiment(BaseExperiment):
 
     def run(self) -> None:
         """Main entry point for the plutus forecasting experiment."""
-        logging.info("Starting the plutus forecasting experiment.")
+        seed = 42
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        logging.info("Starting the plutus forecasting experiment (seed=%s).", seed)
 
         logging.info("Loading data...")
         df = pd.read_csv("datasets/plutus.trades.training.daily.csv")
@@ -55,8 +61,8 @@ class PlutusForecastingExperiment(BaseExperiment):
             target_columns=features,
             group_by_column="symbolId",
             sort_by_column="bucket",
-            sequence_transform=lambda seq: seq / np.max(seq, axis=0),
-            target_transform=lambda target, seq: np.clip(target / np.max(seq, axis=0), 0.0, 1.5),
+            sequence_transform=lambda seq: seq / np.maximum(np.max(seq, axis=0), 1e-8),
+            target_transform=lambda target, seq: np.clip(target / np.maximum(np.max(seq, axis=0), 1e-8), 0.0, 1.5),
         )
 
         sequence_processor = SequenceProcessor(sequence_config)
@@ -103,7 +109,23 @@ class PlutusForecastingExperiment(BaseExperiment):
         logging.info(f"Test loss: {test_loss:.4f}")
 
         logging.info("Saving model...")
-        harness.save_model(f"{base_path}/model_{uuid4()}.pth")
+        model_path = Path(base_path) / "model.pth"
+        tmp_model_path = model_path.with_suffix(".pth.tmp")
+        harness.save_model(str(tmp_model_path))
+        os.replace(tmp_model_path, model_path)
+
+        full_config: dict[str, Any] = {
+            **params,
+            "input_size": int(x_train.shape[2]),
+            "output_size": int(y_train.shape[2]),
+            "prediction_horizon": prediction_horizon,
+            "sequence_length": 30,
+            "feature_fields": ["average_price", "min_price", "max_price", "volume"],
+        }
+
+        with open(Path(base_path) / "params.json", "w") as f:
+            json.dump(full_config, f, indent=4)
+        logging.info("Saved model config: %s", full_config)
 
         predictions = harness.predict(torch.FloatTensor(x_test))
         self._plot_predictions(y_test, predictions, features)

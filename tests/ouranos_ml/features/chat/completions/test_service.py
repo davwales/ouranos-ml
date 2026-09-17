@@ -463,3 +463,42 @@ async def test_handle_when_no_chunk_finish_reason_should_default_to_stop():
 
     # Assert
     assert response.choices[0].finish_reason == "stop"
+
+
+@pytest.mark.asyncio
+async def test_handle_when_client_raises_should_propagate_and_log():
+    # Arrange
+    mock_client = MagicMock()
+    mock_client.chat.completions.stream.side_effect = RuntimeError("upstream down")
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client, patch(
+        "ouranos_ml.features.chat.completions.service.logger"
+    ) as mock_logger:
+        mock_get_client.return_value = mock_client
+        request = make_chat_request()
+
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="upstream down"):
+            await handle(request)
+
+    mock_logger.error.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_handle_stream_when_client_raises_should_propagate_and_log():
+    # Arrange
+    mock_client = MagicMock()
+    mock_client.chat.completions.stream.side_effect = RuntimeError("upstream down")
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client, patch(
+        "ouranos_ml.features.chat.completions.service.logger"
+    ) as mock_logger:
+        mock_get_client.return_value = mock_client
+        request = make_chat_request(stream=True)
+
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="upstream down"):
+            async for _ in handle_stream(request):
+                pass
+
+    mock_logger.error.assert_called_once()

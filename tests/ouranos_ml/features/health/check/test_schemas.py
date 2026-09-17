@@ -43,7 +43,7 @@ def test_health_check_when_data_provided_should_serialize_data():
     assert result["data"] == {"device_count": 1}
 
 
-def test_gpu_check_data_when_serialized_should_use_camel_case():
+def test_gpu_check_data_when_serialized_should_use_field_names():
     # Arrange
     gpu_data = GpuCheckData(device_count=2)
 
@@ -51,7 +51,7 @@ def test_gpu_check_data_when_serialized_should_use_camel_case():
     result = gpu_data.model_dump(by_alias=True)
 
     # Assert
-    assert result == {"deviceCount": 2}
+    assert result == {"device_count": 2}
 
 
 def test_health_response_when_serialized_should_include_checks_dict():

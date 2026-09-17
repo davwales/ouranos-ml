@@ -101,7 +101,7 @@ def test_check_gpu_when_cuda_available_should_return_healthy():
     # Assert
     assert result.status == CheckStatus.HEALTHY
     assert "CUDA is available" in result.description
-    assert result.data["deviceCount"] == 2
+    assert result.data["device_count"] == 2
 
 
 def test_check_gpu_when_cuda_unavailable_should_return_degraded():
