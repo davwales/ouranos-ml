@@ -1,0 +1,58 @@
+info:
+  name: Create (Function Tools)
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/responses"
+  body:
+    type: json
+    data: |-
+      {
+        "model": "{{MODEL}}",
+        "input": [
+          {
+            "role": "user",
+            "content": "What's the weather in Paris?"
+          },
+          {
+            "type": "function_call",
+            "call_id": "call_1",
+            "name": "get_weather",
+            "arguments": "{\"city\":\"Paris\"}"
+          },
+          {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "{\"temp_c\":18,\"conditions\":\"sunny\"}"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "name": "get_weather",
+            "description": "Get the current weather for a city.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "city"
+              ],
+              "additionalProperties": false
+            },
+            "strict": true
+          }
+        ]
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

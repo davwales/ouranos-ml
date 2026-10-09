@@ -3,6 +3,6 @@ variables:
   - name: BASE_URL
     value: http://localhost:8005
   - name: MODEL
-    value: hf.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF:latest
+    value: hf.co/nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF
   - name: EMBEDDING_MODEL
     value: hf.co/Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M
