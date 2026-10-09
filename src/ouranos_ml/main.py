@@ -7,7 +7,9 @@ from ouranos_ml.features.embeddings.router import embeddings_router
 from ouranos_ml.features.health.router import health_router
 from ouranos_ml.features.models.router import models_router
 from ouranos_ml.features.plutus.router import plutus_router
+from ouranos_ml.features.responses.router import responses_router
 from ouranos_ml.shared.domain.core.settings import get_settings
+from ouranos_ml.shared.infra.openai.errors import register_openai_error_handler
 from ouranos_ml.shared.logging import RequestLoggingMiddleware, configure_logging
 
 app = FastAPI()
@@ -19,12 +21,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(RequestLoggingMiddleware)
+register_openai_error_handler(app)
 
 app.include_router(chat_router)
 app.include_router(embeddings_router)
 app.include_router(health_router)
 app.include_router(models_router)
 app.include_router(plutus_router)
+app.include_router(responses_router)
 
 
 def main() -> None:

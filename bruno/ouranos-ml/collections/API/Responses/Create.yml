@@ -1,0 +1,23 @@
+info:
+  name: Create
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/responses"
+  body:
+    type: json
+    data: |-
+      {
+        "model": "{{MODEL}}",
+        "instructions": "You are a concise assistant.",
+        "input": "tell me a programming joke"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

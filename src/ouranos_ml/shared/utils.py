@@ -6,7 +6,7 @@ def server_side_event[T: BaseModel](data: T, event: str | None = None) -> str:
     parts: list[str] = []
     if event:
         parts.append(f"event: {event}")
-    parts.append(f"data: {data.model_dump_json()}")
+    parts.append(f"data: {data.model_dump_json(by_alias=True)}")
     return "\n".join(parts) + "\n\n"
 
 

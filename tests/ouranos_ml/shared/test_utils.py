@@ -1,5 +1,5 @@
 from ouranos_ml.shared.utils import done_event, server_side_event
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SimpleModel(BaseModel):
@@ -72,3 +72,21 @@ def test_done_event_when_called_should_return_done_string() -> None:
 
     # Assert
     assert result == "data: [DONE]\n\n"
+
+
+class AliasedModel(BaseModel):
+    """Test model whose field has an explicit wire-name alias."""
+
+    json_schema: dict = Field(alias="schema")
+
+
+def test_server_side_event_when_field_has_alias_should_emit_wire_name() -> None:
+    """Test SSE formatting serializes explicit aliases, matching FastAPI's JSON responses."""
+    # Arrange
+    model = AliasedModel.model_validate({"schema": {"type": "object"}})
+
+    # Act
+    result = server_side_event(model)
+
+    # Assert
+    assert result == 'data: {"schema":{"type":"object"}}\n\n'
