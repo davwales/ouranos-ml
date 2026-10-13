@@ -10,6 +10,7 @@ from ouranos_ml.features.responses.router import responses_router
 from ouranos_ml.shared.infra.openai.errors import register_openai_error_handler
 from tests.ouranos_ml.shared.factories.responses_factories import (
     make_function_tool,
+    make_llama_cpp_stream_events,
     make_response_payload,
     make_sdk_response,
     make_stream_event,
@@ -79,6 +80,37 @@ async def test_create_response_endpoint_when_stream_true_should_emit_named_sse_e
     assert frames[-1][0] == "response.completed"
     assert "[DONE]" not in response.text
     assert '"sequence_number":0' in frames[0][1]
+
+
+@pytest.mark.asyncio
+async def test_create_response_endpoint_when_llama_cpp_stream_should_emit_complete_events_with_reasoning(async_client):
+    # Arrange
+    upstream_events = make_llama_cpp_stream_events(reasoning="Thinking.")
+    client = MagicMock()
+    client.responses.create = AsyncMock(return_value=make_mock_stream(upstream_events))
+    payload = {"model": "test-model", "input": "Hello", "stream": True}
+
+    # Act
+    with patch(GET_CLIENT, return_value=client):
+        response = await async_client.post("/responses", json=payload)
+
+    # Assert
+    assert response.status_code == 200
+    frames = _parse_sse(response.text)
+    assert [name for name, _ in frames] == [event.type for event in upstream_events]
+    created = json.loads(frames[0][1])
+    assert created["sequence_number"] == 0
+    assert created["response"]["model"] == "test-model"
+    assert created["response"]["output"] == []
+    reasoning_delta = json.loads(frames[3][1])
+    assert reasoning_delta == {
+        "type": "response.reasoning_text.delta",
+        "sequence_number": 3,
+        "item_id": "rs_001",
+        "output_index": 0,
+        "content_index": 0,
+        "delta": "Thinking.",
+    }
 
 
 @pytest.mark.asyncio
