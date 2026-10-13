@@ -16,6 +16,8 @@ from ouranos_ml.features.responses.create_response.schemas import (
     OutputText,
     Reasoning,
     ReasoningSummaryTextDeltaEvent,
+    ReasoningTextDeltaEvent,
+    ReasoningTextDoneEvent,
     ResponseObject,
     ResponseSnapshotEvent,
     TextFormatJSONSchema,
@@ -139,6 +141,26 @@ def test_stream_event_adapter_when_text_stream_should_parse_every_event_to_owned
             },
             ReasoningSummaryTextDeltaEvent,
         ),
+        (
+            {
+                "type": "response.reasoning_text.delta",
+                "item_id": "rs_1",
+                "output_index": 0,
+                "content_index": 0,
+                "delta": "Thinking",
+            },
+            ReasoningTextDeltaEvent,
+        ),
+        (
+            {
+                "type": "response.reasoning_text.done",
+                "item_id": "rs_1",
+                "output_index": 0,
+                "content_index": 0,
+                "text": "Thinking",
+            },
+            ReasoningTextDoneEvent,
+        ),
     ],
 )
 def test_stream_event_adapter_when_tool_or_reasoning_event_should_parse_to_owned_type(payload, expected_type):
@@ -225,3 +247,25 @@ def test_output_item_when_message_and_function_call_should_parse_each_to_owned_t
     # Assert
     assert isinstance(items[0], OutputMessage)
     assert isinstance(items[1], FunctionCall)
+
+
+def test_output_item_when_reasoning_has_text_content_should_keep_it():
+    # Arrange
+    payload = [
+        {
+            "type": "reasoning",
+            "id": "rs_1",
+            "summary": [],
+            "content": [{"type": "reasoning_text", "text": "Thinking."}],
+            "encrypted_content": "",
+        }
+    ]
+
+    # Act
+    items = _OUTPUT_ITEMS.validate_python(payload)
+
+    # Assert
+    reasoning = items[0]
+    assert isinstance(reasoning, Reasoning)
+    assert reasoning.content[0].text == "Thinking."
+    assert reasoning.model_dump(by_alias=True)["content"] == [{"type": "reasoning_text", "text": "Thinking."}]

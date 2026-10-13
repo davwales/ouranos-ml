@@ -1,4 +1,6 @@
+import time
 from collections.abc import AsyncGenerator, AsyncIterator
+from typing import Any
 
 import structlog
 from openai import AsyncStream
@@ -19,6 +21,7 @@ from openai.types.responses.response_format_text_json_schema_config_param import
     ResponseFormatTextJSONSchemaConfigParam,
 )
 from openai.types.responses.response_input_item_param import FunctionCallOutput as FunctionCallOutputParam
+from openai.types.responses.response_reasoning_item_param import Content as ReasoningContentParam
 from openai.types.responses.response_reasoning_item_param import Summary
 from openai.types.shared_params import Reasoning as ReasoningParam
 from openai.types.shared_params import ResponseFormatText as ResponseFormatTextParam
@@ -81,11 +84,12 @@ async def _relay_stream(
     stream: AsyncStream[SDKResponseStreamEvent], request: CreateResponseRequest
 ) -> AsyncGenerator[ResponseStreamEvent]:
     """Convert and relay upstream events, skipping event types we do not model."""
+    backfill = _StreamBackfill(request.model)
     try:
         async with stream:
             async for upstream_event in stream:
                 try:
-                    event = STREAM_EVENT_ADAPTER.validate_python(upstream_event.to_dict())
+                    event = STREAM_EVENT_ADAPTER.validate_python(backfill(upstream_event.to_dict()))
                 except ValidationError as exc:
                     if exc.errors()[0]["type"] != "union_tag_invalid":
                         raise
@@ -97,6 +101,44 @@ async def _relay_stream(
     except Exception:
         logger.error("response stream failed", model=request.model, exc_info=True)
         raise
+
+
+class _StreamBackfill:
+    """Fill in stream event fields the upstream omits, keeping every field it does send.
+
+    llama.cpp's ``llama-server`` leaves out ``sequence_number`` on every event, ``output_index``/``content_index``
+    on item, part and delta events, and ``created_at``/``model``/``output`` on the ``response.created`` and
+    ``response.in_progress`` snapshots. Clients deserialize these as required fields.
+    """
+
+    def __init__(self, model: str) -> None:
+        self._model = model
+        self._created_at = int(time.time())
+        self._sequence_number = 0
+        self._item_ids: list[str | None] = []
+
+    def __call__(self, event: dict[str, Any]) -> dict[str, Any]:
+        event.setdefault("sequence_number", self._sequence_number)
+        self._sequence_number += 1
+        if isinstance(item := event.get("item"), dict):
+            event.setdefault("output_index", self._output_index(item.get("id"), add=True))
+        elif "item_id" in event:
+            event.setdefault("output_index", self._output_index(event["item_id"], add=False))
+            event.setdefault("content_index", 0)
+        if isinstance(response := event.get("response"), dict):
+            response.setdefault("created_at", self._created_at)
+            response.setdefault("model", self._model)
+            response.setdefault("output", [])
+        return event
+
+    def _output_index(self, item_id: str | None, *, add: bool) -> int:
+        """Position of the item in the output, in the order the upstream added items."""
+        if item_id is not None and item_id in self._item_ids:
+            return self._item_ids.index(item_id)
+        if not add:
+            return 0
+        self._item_ids.append(item_id)
+        return len(self._item_ids) - 1
 
 
 def _to_create_params(request: CreateResponseRequest) -> ResponseCreateParamsBase:
@@ -140,12 +182,17 @@ def _to_item_param(item: InputItem) -> ResponseInputItemParam:
         case FunctionCallOutput():
             return FunctionCallOutputParam(type="function_call_output", call_id=item.call_id, output=item.output)
         case Reasoning():
-            return ResponseReasoningItemParam(
+            param = ResponseReasoningItemParam(
                 type="reasoning",
                 id=item.id,
                 summary=[Summary(type="summary_text", text=part.text) for part in item.summary],
                 encrypted_content=item.encrypted_content,
             )
+            if item.content:
+                param["content"] = [
+                    ReasoningContentParam(type="reasoning_text", text=part.text) for part in item.content
+                ]
+            return param
 
 
 def _to_content_param(part: InputContent) -> ResponseInputContentParam:
@@ -156,9 +203,11 @@ def _to_content_param(part: InputContent) -> ResponseInputContentParam:
 
 
 def _to_tool_param(tool: FunctionTool) -> FunctionToolParam:
-    return FunctionToolParam(
-        type="function", name=tool.name, description=tool.description, parameters=tool.parameters, strict=tool.strict
-    )
+    """Convert a function tool; an unset description is left out (llama.cpp rejects a ``null`` one)."""
+    param = FunctionToolParam(type="function", name=tool.name, parameters=tool.parameters, strict=tool.strict)
+    if tool.description is not None:
+        param["description"] = tool.description
+    return param
 
 
 def _to_text_param(text: TextConfig) -> ResponseTextConfigParam:

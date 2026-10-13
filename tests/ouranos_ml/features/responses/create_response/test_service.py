@@ -8,6 +8,9 @@ from ouranos_ml.features.responses.create_response.schemas import (
     FunctionCall,
     OutputItemEvent,
     OutputMessage,
+    OutputTextDeltaEvent,
+    Reasoning,
+    ReasoningTextDeltaEvent,
     ResponseObject,
     ResponseSnapshotEvent,
 )
@@ -16,6 +19,7 @@ from tests.ouranos_ml.shared.factories.responses_factories import (
     make_create_response_request,
     make_function_call_item,
     make_function_tool,
+    make_llama_cpp_stream_events,
     make_sdk_response,
     make_stream_event,
     make_text_stream_events,
@@ -116,6 +120,18 @@ def test_to_create_params_when_text_format_is_text_should_build_text_format():
     assert params["text"] == {"format": {"type": "text"}}
 
 
+def test_to_create_params_when_tool_has_no_description_should_omit_it():
+    # Arrange
+    tool = {key: value for key, value in make_function_tool().items() if key != "description"}
+    request = make_create_response_request(tools=[tool])
+
+    # Act
+    params = _to_create_params(request)
+
+    # Assert
+    assert "description" not in next(iter(params["tools"]))
+
+
 @pytest.mark.asyncio
 async def test_handle_when_upstream_responds_should_return_owned_response():
     # Arrange
@@ -167,6 +183,56 @@ async def test_open_stream_when_upstream_streams_text_should_convert_every_event
     assert isinstance(events[0], ResponseSnapshotEvent)
     assert isinstance(events[2], OutputItemEvent)
     assert isinstance(events[2].item, OutputMessage)
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_upstream_omits_required_fields_should_backfill_them():
+    # Arrange
+    upstream_events = make_llama_cpp_stream_events(reasoning="Thinking.", text="Hi")
+    client = _mock_client(events=upstream_events)
+
+    # Act
+    with patch(GET_CLIENT, return_value=client):
+        events = [event async for event in await open_stream(make_create_response_request(stream=True))]
+
+    # Assert
+    assert [event.type for event in events] == [event.type for event in upstream_events]
+    assert [event.sequence_number for event in events] == list(range(len(upstream_events)))
+    created = events[0]
+    assert isinstance(created, ResponseSnapshotEvent)
+    assert created.response.model == "test-model"
+    assert created.response.created_at > 0
+    assert created.response.output == []
+    reasoning_delta = events[3]
+    assert isinstance(reasoning_delta, ReasoningTextDeltaEvent)
+    assert (reasoning_delta.delta, reasoning_delta.output_index, reasoning_delta.content_index) == ("Thinking.", 0, 0)
+    text_delta = events[6]
+    assert isinstance(text_delta, OutputTextDeltaEvent)
+    assert (text_delta.output_index, text_delta.content_index) == (1, 0)
+    message_done = events[10]
+    assert isinstance(message_done, OutputItemEvent)
+    assert message_done.output_index == 1
+    reasoning_item = events[-1].response.output[0]
+    assert isinstance(reasoning_item, Reasoning)
+    assert reasoning_item.content[0].text == "Thinking."
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_upstream_sends_indices_should_keep_them():
+    # Arrange
+    upstream_event = make_stream_event(
+        "response.output_text.delta", 7, item_id="msg_001", output_index=2, content_index=1, delta="Hi", logprobs=[]
+    )
+    client = _mock_client(events=[upstream_event])
+
+    # Act
+    with patch(GET_CLIENT, return_value=client):
+        events = [event async for event in await open_stream(make_create_response_request(stream=True))]
+
+    # Assert
+    event = events[0]
+    assert isinstance(event, OutputTextDeltaEvent)
+    assert (event.sequence_number, event.output_index, event.content_index) == (7, 2, 1)
 
 
 @pytest.mark.asyncio
@@ -246,6 +312,7 @@ def test_to_sdk_input_when_mixed_items_should_convert_each_to_sdk_param():
             make_function_call_item(),
             {"type": "function_call_output", "call_id": "call_001", "output": "{}"},
             {"type": "reasoning", "id": "rs_1", "summary": [{"type": "summary_text", "text": "t"}]},
+            {"type": "reasoning", "id": "rs_2", "content": [{"type": "reasoning_text", "text": "r"}]},
         ]
     )
 
@@ -276,5 +343,12 @@ def test_to_sdk_input_when_mixed_items_should_convert_each_to_sdk_param():
             "id": "rs_1",
             "summary": [{"type": "summary_text", "text": "t"}],
             "encrypted_content": None,
+        },
+        {
+            "type": "reasoning",
+            "id": "rs_2",
+            "summary": [],
+            "encrypted_content": None,
+            "content": [{"type": "reasoning_text", "text": "r"}],
         },
     ]

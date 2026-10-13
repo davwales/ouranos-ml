@@ -64,12 +64,20 @@ class SummaryText(BaseSchema):
     text: str
 
 
+class ReasoningText(BaseSchema):
+    """A part of the model's raw reasoning text."""
+
+    type: Literal["reasoning_text"] = "reasoning_text"
+    text: str
+
+
 class Reasoning(BaseSchema):
-    """The model's reasoning (Ollama puts the thinking text in ``encrypted_content``)."""
+    """The model's reasoning (llama.cpp puts the thinking text in ``content``, Ollama in ``encrypted_content``)."""
 
     type: Literal["reasoning"] = "reasoning"
     id: str
     summary: list[SummaryText] = []
+    content: list[ReasoningText] = []
     encrypted_content: str | None = None
 
 
@@ -314,6 +322,28 @@ class ReasoningSummaryTextDoneEvent(BaseSchema):
     text: str
 
 
+class ReasoningTextDeltaEvent(BaseSchema):
+    """A chunk of raw reasoning text."""
+
+    type: Literal["response.reasoning_text.delta"]
+    sequence_number: int
+    item_id: str
+    output_index: int
+    content_index: int
+    delta: str
+
+
+class ReasoningTextDoneEvent(BaseSchema):
+    """The finished raw reasoning text of a content part."""
+
+    type: Literal["response.reasoning_text.done"]
+    sequence_number: int
+    item_id: str
+    output_index: int
+    content_index: int
+    text: str
+
+
 class ErrorEvent(BaseSchema):
     """An error that ended the stream."""
 
@@ -334,6 +364,8 @@ ResponseStreamEvent = Annotated[
     | FunctionCallArgumentsDoneEvent
     | ReasoningSummaryTextDeltaEvent
     | ReasoningSummaryTextDoneEvent
+    | ReasoningTextDeltaEvent
+    | ReasoningTextDoneEvent
     | ErrorEvent,
     Field(discriminator="type"),
 ]

@@ -4,8 +4,9 @@ Upstream objects are built as real ``openai`` SDK types (validated from wire-sha
 service's conversion into our own schemas is exercised exactly as it is against a live backend.
 """
 
-from typing import Any
+from typing import Any, cast
 
+from openai._models import construct_type
 from openai.types.responses import Response as SDKResponse
 from openai.types.responses import ResponseStreamEvent
 
@@ -124,3 +125,47 @@ def make_text_stream_events(
         ),
     ]
     return [make_stream_event(event_type, index, **fields) for index, (event_type, fields) in enumerate(payloads)]
+
+
+def make_unvalidated_stream_event(event_type: str, **fields: Any) -> ResponseStreamEvent:
+    """Create an SDK stream event without validation, as the SDK builds events off the wire (absent fields stay unset)."""
+    return cast(ResponseStreamEvent, construct_type(type_=ResponseStreamEvent, value={"type": event_type, **fields}))
+
+
+def make_llama_cpp_stream_events(
+    *, reasoning: str = "The user greets.", text: str = "Hello", model: str = "test-model"
+) -> list[ResponseStreamEvent]:
+    """Create a reasoning-then-text event sequence shaped like llama.cpp's ``llama-server`` (b11580) emits it.
+
+    It omits ``sequence_number`` everywhere, ``output_index``/``content_index`` on item, part and delta events, and
+    ``created_at``/``model``/``output`` on the opening snapshots; reasoning arrives as ``reasoning_text`` content.
+    """
+    snapshot = {"id": "resp_001", "object": "response", "status": "in_progress"}
+    reasoning_item = {"type": "reasoning", "id": "rs_001", "summary": [], "content": [], "encrypted_content": ""}
+    done_reasoning = {**reasoning_item, "content": [{"type": "reasoning_text", "text": reasoning}]}
+    message = {"type": "message", "id": "msg_001", "role": "assistant", "status": "in_progress", "content": []}
+    part = {"type": "output_text", "text": text, "annotations": [], "logprobs": []}
+    done_message = {**message, "status": "completed", "content": [part]}
+    payloads: list[tuple[str, dict[str, Any]]] = [
+        ("response.created", {"response": snapshot}),
+        ("response.in_progress", {"response": snapshot}),
+        ("response.output_item.added", {"item": reasoning_item}),
+        ("response.reasoning_text.delta", {"item_id": "rs_001", "delta": reasoning}),
+        ("response.output_item.added", {"item": message}),
+        ("response.content_part.added", {"item_id": "msg_001", "part": {"type": "output_text", "text": ""}}),
+        ("response.output_text.delta", {"item_id": "msg_001", "delta": text}),
+        ("response.output_item.done", {"item": done_reasoning}),
+        ("response.output_text.done", {"item_id": "msg_001", "text": text}),
+        ("response.content_part.done", {"item_id": "msg_001", "part": part}),
+        ("response.output_item.done", {"item": done_message}),
+        (
+            "response.completed",
+            {
+                "response": {
+                    **make_response_payload(output=[done_reasoning, done_message]),
+                    "model": f"{model}:LATEST",
+                }
+            },
+        ),
+    ]
+    return [make_unvalidated_stream_event(event_type, **fields) for event_type, fields in payloads]
