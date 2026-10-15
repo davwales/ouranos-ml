@@ -14,11 +14,18 @@ from ouranos_ml.features.responses.create_response.schemas import (
     ResponseObject,
     ResponseSnapshotEvent,
 )
-from ouranos_ml.features.responses.create_response.service import _to_create_params, _to_sdk_input, handle, open_stream
+from ouranos_ml.features.responses.create_response.service import (
+    _to_create_params,
+    _to_extra_body,
+    _to_sdk_input,
+    handle,
+    open_stream,
+)
 from tests.ouranos_ml.shared.factories.responses_factories import (
     make_create_response_request,
     make_function_call_item,
     make_function_tool,
+    make_json_schema_text,
     make_llama_cpp_stream_events,
     make_sdk_response,
     make_stream_event,
@@ -142,10 +149,77 @@ async def test_handle_when_upstream_responds_should_return_owned_response():
         response = await handle(make_create_response_request(temperature=0.2))
 
     # Assert
-    client.responses.create.assert_awaited_once_with(model="test-model", input="Hello, world", temperature=0.2)
+    client.responses.create.assert_awaited_once_with(
+        model="test-model", input="Hello, world", temperature=0.2, extra_body=None
+    )
     assert isinstance(response, ResponseObject)
     assert isinstance(response.output[0], FunctionCall)
     assert response.output[0].call_id == "call_001"
+
+
+def test_to_extra_body_when_no_text_should_return_none():
+    # Arrange
+    request = make_create_response_request()
+
+    # Act
+    extra_body = _to_extra_body(request)
+
+    # Assert
+    assert extra_body is None
+
+
+def test_to_extra_body_when_text_format_is_text_should_return_none():
+    # Arrange
+    request = make_create_response_request(text={"format": {"type": "text"}})
+
+    # Act
+    extra_body = _to_extra_body(request)
+
+    # Assert
+    assert extra_body is None
+
+
+def test_to_extra_body_when_json_schema_should_mirror_it_as_response_format():
+    # Arrange
+    request = make_create_response_request(text=make_json_schema_text())
+
+    # Act
+    extra_body = _to_extra_body(request)
+
+    # Assert
+    assert extra_body == {
+        "response_format": {"type": "json_schema", "json_schema": {"name": "city", "schema": {"type": "object"}}}
+    }
+
+
+@pytest.mark.asyncio
+async def test_handle_when_json_schema_requested_should_send_response_format_extra_body():
+    # Arrange
+    client = _mock_client()
+
+    # Act
+    with patch(GET_CLIENT, return_value=client):
+        await handle(make_create_response_request(text=make_json_schema_text()))
+
+    # Assert
+    kwargs = client.responses.create.await_args.kwargs
+    assert kwargs["text"]["format"]["type"] == "json_schema"
+    assert kwargs["extra_body"]["response_format"]["json_schema"]["name"] == "city"
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_json_schema_requested_should_send_response_format_extra_body():
+    # Arrange
+    client = _mock_client(events=make_text_stream_events())
+
+    # Act
+    with patch(GET_CLIENT, return_value=client):
+        await open_stream(make_create_response_request(text=make_json_schema_text()))
+
+    # Assert
+    kwargs = client.responses.create.await_args.kwargs
+    assert kwargs["stream"] is True
+    assert kwargs["extra_body"]["response_format"]["type"] == "json_schema"
 
 
 @pytest.mark.asyncio
@@ -177,7 +251,9 @@ async def test_open_stream_when_upstream_streams_text_should_convert_every_event
         events = [event async for event in await open_stream(make_create_response_request(stream=True))]
 
     # Assert
-    client.responses.create.assert_awaited_once_with(model="test-model", input="Hello, world", stream=True)
+    client.responses.create.assert_awaited_once_with(
+        model="test-model", input="Hello, world", extra_body=None, stream=True
+    )
     assert [event.type for event in events] == [event.type for event in upstream_events]
     assert [event.sequence_number for event in events] == [event.sequence_number for event in upstream_events]
     assert isinstance(events[0], ResponseSnapshotEvent)

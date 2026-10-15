@@ -54,7 +54,9 @@ async def handle(request: CreateResponseRequest) -> ResponseObject:
     _log_requested(request)
 
     try:
-        upstream = await get_openai_client().responses.create(**_to_create_params(request))
+        upstream = await get_openai_client().responses.create(
+            **_to_create_params(request), extra_body=_to_extra_body(request)
+        )
     except Exception:
         logger.error("response upstream failed", model=request.model, exc_info=True)
         raise
@@ -72,7 +74,9 @@ async def open_stream(request: CreateResponseRequest) -> AsyncIterator[ResponseS
     """
     _log_requested(request)
     try:
-        stream = await get_openai_client().responses.create(**_to_create_params(request), stream=True)
+        stream = await get_openai_client().responses.create(
+            **_to_create_params(request), extra_body=_to_extra_body(request), stream=True
+        )
     except Exception:
         logger.error("response upstream failed", model=request.model, exc_info=True)
         raise
@@ -159,6 +163,18 @@ def _to_create_params(request: CreateResponseRequest) -> ResponseCreateParamsBas
     if request.max_output_tokens is not None:
         params["max_output_tokens"] = request.max_output_tokens
     return params
+
+
+def _to_extra_body(request: CreateResponseRequest) -> dict[str, Any] | None:
+    """Mirror a JSON schema text format as a top-level ``response_format``, sent alongside ``text``.
+
+    llama.cpp's ``llama-server`` ignores ``text.format`` on ``/responses`` but constrains the output to a
+    ``response_format`` (it reads only ``json_schema.schema``); backends that honour ``text.format`` ignore the extra.
+    """
+    if request.text is None or request.text.format.type != "json_schema":
+        return None
+    json_schema = {"name": request.text.format.name, "schema": request.text.format.json_schema}
+    return {"response_format": {"type": "json_schema", "json_schema": json_schema}}
 
 
 def _to_sdk_input(input_value: str | list[InputItem]) -> str | list[ResponseInputItemParam]:
