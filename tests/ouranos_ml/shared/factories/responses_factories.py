@@ -27,6 +27,11 @@ def make_function_tool(*, name: str = "get_weather") -> dict[str, Any]:
     }
 
 
+def make_json_schema_text(*, name: str = "city") -> dict[str, Any]:
+    """Create a wire-format ``text`` config requesting a JSON schema format."""
+    return {"format": {"type": "json_schema", "name": name, "schema": {"type": "object"}, "strict": True}}
+
+
 def make_create_response_request(**overrides: Any) -> CreateResponseRequest:
     """Create a CreateResponseRequest from wire-format fields with sensible defaults."""
     payload: dict[str, Any] = {"model": "test-model", "input": "Hello, world"}
