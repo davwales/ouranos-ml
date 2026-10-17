@@ -1,0 +1,21 @@
+info:
+  name: Generate
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/images/generations"
+  body:
+    type: json
+    data: |-
+      {
+        "prompt": "a red fox sitting in fresh snow, golden hour photograph"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

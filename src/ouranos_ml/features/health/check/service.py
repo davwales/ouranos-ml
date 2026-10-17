@@ -10,9 +10,11 @@ from ouranos_ml.features.health.check.schemas import (
     HealthCheck,
     HealthResponse,
     ServiceStatus,
+    SwarmUICheckData,
 )
 from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.infra.clients.llm_client import get_openai_client
+from ouranos_ml.shared.infra.clients.swarmui_client import get_swarmui_client
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +46,34 @@ async def check_llm_backend(timeout: float) -> HealthCheck:
         return HealthCheck(status=CheckStatus.UNHEALTHY, description="LLM backend is unreachable")
 
 
+async def check_swarmui(timeout: float) -> HealthCheck:
+    """Check if SwarmUI (image generation) is reachable and its backends are usable.
+
+    Failures are DEGRADED rather than UNHEALTHY: image generation being down should not mark the whole service
+    unhealthy for callers that only use the LLM features.
+    """
+    settings = get_settings()
+    if not settings.swarmui_base_url:
+        return HealthCheck(status=CheckStatus.NOT_CONFIGURED, description="SwarmUI is not configured")
+
+    try:
+        client = get_swarmui_client()
+        async with asyncio.timeout(timeout):
+            session_id = await client.new_session()
+            response = await client.call("GetCurrentStatus", session_id)
+    except TimeoutError:
+        return HealthCheck(status=CheckStatus.DEGRADED, description=f"SwarmUI timed out after {timeout}s")
+    except Exception:
+        logger.exception("SwarmUI health check failed")
+        return HealthCheck(status=CheckStatus.DEGRADED, description="SwarmUI is unreachable")
+
+    backend_status = response.get("backend_status", {}).get("status", "unknown")
+    data = SwarmUICheckData(backend_status=backend_status).model_dump(by_alias=True)
+    if backend_status in ("errored", "all_disabled", "empty"):
+        return HealthCheck(status=CheckStatus.DEGRADED, description=f"SwarmUI backends are {backend_status}", data=data)
+    return HealthCheck(status=CheckStatus.HEALTHY, description="SwarmUI is reachable", data=data)
+
+
 def check_gpu() -> HealthCheck:
     """Check if CUDA GPU is available."""
     try:
@@ -66,6 +96,7 @@ def check_gpu() -> HealthCheck:
 _CHECKS: list[CheckDef] = [
     CheckDef(name="llm", fn=check_llm_backend, needs_timeout=True),
     CheckDef(name="gpu", fn=check_gpu, needs_timeout=False),
+    CheckDef(name="swarmui", fn=check_swarmui, needs_timeout=True),
 ]
 
 

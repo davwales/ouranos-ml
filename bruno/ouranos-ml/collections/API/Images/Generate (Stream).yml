@@ -1,0 +1,24 @@
+info:
+  name: Generate (Stream)
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/images/generations"
+  body:
+    type: json
+    data: |-
+      {
+        "prompt": "a lighthouse on a cliff at dusk, oil painting",
+        "n": 2,
+        "previews": true,
+        "stream": true
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

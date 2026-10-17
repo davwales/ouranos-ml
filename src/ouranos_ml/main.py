@@ -5,11 +5,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from ouranos_ml.features.chat.router import chat_router
 from ouranos_ml.features.embeddings.router import embeddings_router
 from ouranos_ml.features.health.router import health_router
+from ouranos_ml.features.images.router import images_router
 from ouranos_ml.features.models.router import models_router
 from ouranos_ml.features.plutus.router import plutus_router
 from ouranos_ml.features.responses.router import responses_router
 from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.infra.openai.errors import register_openai_error_handler
+from ouranos_ml.shared.infra.swarmui.errors import register_swarmui_error_handler
 from ouranos_ml.shared.logging import RequestLoggingMiddleware, configure_logging
 
 app = FastAPI()
@@ -22,10 +24,12 @@ app.add_middleware(
 )
 app.add_middleware(RequestLoggingMiddleware)
 register_openai_error_handler(app)
+register_swarmui_error_handler(app)
 
 app.include_router(chat_router)
 app.include_router(embeddings_router)
 app.include_router(health_router)
+app.include_router(images_router)
 app.include_router(models_router)
 app.include_router(plutus_router)
 app.include_router(responses_router)
