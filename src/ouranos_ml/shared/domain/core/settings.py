@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     log_app_name: str = "Ouranos.Ml"
     loki_base_url: str = ""
     loki_tenant_id: str = "tenant1"
+    swarmui_base_url: str = ""
+    swarmui_token: str = ""
+    swarmui_default_model: str = "flux-2-klein-9b"
+    swarmui_generation_timeout_seconds: float = 600.0
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

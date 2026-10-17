@@ -1,10 +1,14 @@
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from ouranos_ml.features.health.check.schemas import CheckStatus, HealthCheck, ServiceStatus
-from ouranos_ml.features.health.check.service import CheckDef, check_gpu, check_llm_backend, handle
+from ouranos_ml.features.health.check.service import CheckDef, check_gpu, check_llm_backend, check_swarmui, handle
+from ouranos_ml.shared.infra.swarmui.errors import SwarmUIUnavailableError
+
+SWARMUI_SETTINGS = "ouranos_ml.features.health.check.service.get_settings"
+SWARMUI_CLIENT = "ouranos_ml.features.health.check.service.get_swarmui_client"
 
 
 @pytest.mark.asyncio
@@ -85,6 +89,93 @@ async def test_check_llm_backend_when_connection_fails_should_return_unhealthy()
     # Assert
     assert result.status == CheckStatus.UNHEALTHY
     assert "unreachable" in result.description
+
+
+def _swarmui_client(backend_status: str = "running") -> MagicMock:
+    client = MagicMock()
+    client.new_session = AsyncMock(return_value="session-1")
+    client.call = AsyncMock(return_value={"status": {}, "backend_status": {"status": backend_status}})
+    return client
+
+
+@pytest.mark.asyncio
+async def test_check_swarmui_when_url_empty_should_return_not_configured():
+    # Arrange
+    mock_settings = MagicMock(swarmui_base_url="")
+
+    with patch(SWARMUI_SETTINGS, return_value=mock_settings):
+        # Act
+        result = await check_swarmui(timeout=5.0)
+
+    # Assert
+    assert result.status == CheckStatus.NOT_CONFIGURED
+
+
+@pytest.mark.asyncio
+async def test_check_swarmui_when_reachable_and_running_should_return_healthy_with_backend_status():
+    # Arrange
+    mock_settings = MagicMock(swarmui_base_url="http://swarm:7801")
+    client = _swarmui_client()
+
+    with patch(SWARMUI_SETTINGS, return_value=mock_settings), patch(SWARMUI_CLIENT, return_value=client):
+        # Act
+        result = await check_swarmui(timeout=5.0)
+
+    # Assert
+    assert result.status == CheckStatus.HEALTHY
+    assert result.data == {"backend_status": "running"}
+    client.call.assert_awaited_once_with("GetCurrentStatus", "session-1")
+
+
+@pytest.mark.asyncio
+async def test_check_swarmui_when_backends_errored_should_return_degraded():
+    # Arrange
+    mock_settings = MagicMock(swarmui_base_url="http://swarm:7801")
+
+    with (
+        patch(SWARMUI_SETTINGS, return_value=mock_settings),
+        patch(SWARMUI_CLIENT, return_value=_swarmui_client("errored")),
+    ):
+        # Act
+        result = await check_swarmui(timeout=5.0)
+
+    # Assert
+    assert result.status == CheckStatus.DEGRADED
+    assert "errored" in result.description
+
+
+@pytest.mark.asyncio
+async def test_check_swarmui_when_unreachable_should_return_degraded_not_unhealthy():
+    # Arrange
+    mock_settings = MagicMock(swarmui_base_url="http://swarm:7801")
+    client = _swarmui_client()
+    client.new_session.side_effect = SwarmUIUnavailableError("down")
+
+    with patch(SWARMUI_SETTINGS, return_value=mock_settings), patch(SWARMUI_CLIENT, return_value=client):
+        # Act
+        result = await check_swarmui(timeout=5.0)
+
+    # Assert
+    assert result.status == CheckStatus.DEGRADED
+    assert "unreachable" in result.description
+
+
+@pytest.mark.asyncio
+async def test_check_swarmui_when_timeout_should_return_degraded():
+    # Arrange
+    mock_settings = MagicMock(swarmui_base_url="http://swarm:7801")
+
+    with (
+        patch(SWARMUI_SETTINGS, return_value=mock_settings),
+        patch(SWARMUI_CLIENT, return_value=_swarmui_client()),
+        patch("ouranos_ml.features.health.check.service.asyncio.timeout", side_effect=TimeoutError),
+    ):
+        # Act
+        result = await check_swarmui(timeout=5.0)
+
+    # Assert
+    assert result.status == CheckStatus.DEGRADED
+    assert "timed out" in result.description
 
 
 def test_check_gpu_when_cuda_available_should_return_healthy():

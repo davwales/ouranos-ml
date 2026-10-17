@@ -30,6 +30,12 @@ class GpuCheckData(BaseSchema):
     device_count: int
 
 
+class SwarmUICheckData(BaseSchema):
+    """Structured data payload for the SwarmUI health check."""
+
+    backend_status: str
+
+
 class HealthCheck(BaseSchema):
     """Schema for a single health check result."""
 
@@ -44,4 +50,3 @@ class HealthResponse(BaseSchema):
 
     status: ServiceStatus
     checks: dict[str, HealthCheck]
-

@@ -10,7 +10,7 @@ from ouranos_ml.shared.domain.core.settings import Settings
 from ouranos_ml.shared.logging.loki import LokiPushHandler, normalize_level_name
 from ouranos_ml.shared.logging.trace_context import add_trace_context
 
-_NOISY_LOGGERS: tuple[str, ...] = ("httpx", "openai", "matplotlib")
+_NOISY_LOGGERS: tuple[str, ...] = ("httpx", "openai", "matplotlib", "websockets")
 
 
 class ConsoleHandler(logging.StreamHandler):
