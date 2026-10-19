@@ -5,6 +5,8 @@ version: 2
 updates:
   - package-ecosystem: uv
     directory: /
+    # Keep the ~=X.Y.0 pins; the default widens them into >=X.Y,<X.Z ranges.
+    versioning-strategy: increase
     schedule:
       interval: weekly
       day: monday
