@@ -24,8 +24,8 @@ def configure_logging(settings: Settings) -> None:
     either a pretty console (local dev) or JSON (production), and attaches the
     Loki push handler when a Loki base URL is configured.
     """
-    level = logging.getLevelName(settings.log_level.upper())
-    if not isinstance(level, int):
+    level = logging.getLevelNamesMapping().get(settings.log_level.upper())
+    if level is None:
         raise ValueError(f"Invalid LOG_LEVEL '{settings.log_level}'")
     use_json = settings.log_json if settings.log_json is not None else bool(settings.loki_base_url)
 

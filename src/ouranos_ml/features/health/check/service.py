@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from collections.abc import Callable
 from typing import Any, NamedTuple
 
@@ -110,7 +111,7 @@ async def handle() -> HealthResponse:
         try:
             if entry.needs_timeout:
                 result = await entry.fn(timeout)
-            elif asyncio.iscoroutinefunction(entry.fn):
+            elif inspect.iscoroutinefunction(entry.fn):
                 result = await entry.fn()
             else:
                 result = await asyncio.to_thread(entry.fn)
