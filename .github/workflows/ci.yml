@@ -25,6 +25,16 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --all-groups
       - run: uv run pytest --cov=ouranos_ml --cov-report=term-missing --cov-fail-under=80
+      # pytest runs without OTel and a broken distro bootstrap fails silently: assert the SDK provider is installed.
+      - name: OpenTelemetry bootstrap smoke test
+        env:
+          OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+          OTEL_TRACES_EXPORTER: otlp
+          OTEL_METRICS_EXPORTER: none
+        run: >-
+          uv run opentelemetry-instrument python -c
+          "import ouranos_ml.main; from opentelemetry import trace; from opentelemetry.sdk.trace import TracerProvider;
+          assert isinstance(trace.get_tracer_provider(), TracerProvider), trace.get_tracer_provider()"
 
   build:
     runs-on: ubuntu-latest

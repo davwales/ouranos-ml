@@ -1,0 +1,55 @@
+name: dependabot-automerge
+
+on: pull_request
+
+permissions: {}
+
+jobs:
+  automerge:
+    # Gate on the PR author, not github.actor, so a human re-run behaves the same.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      # A PAT, not GITHUB_TOKEN: merges made with GITHUB_TOKEN don't trigger the push CI, so publish would never run.
+      GH_TOKEN: ${{ secrets.DEPENDABOT_AUTOMERGE_TOKEN }}
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@v2
+
+      - id: policy
+        name: Decide merge policy
+        env:
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
+          DEPENDENCIES: ${{ steps.meta.outputs.dependency-names }}
+        run: |
+          reason=""
+          if [[ "$UPDATE_TYPE" == "version-update:semver-major" ]]; then
+            reason="major update"
+          elif [[ "$ECOSYSTEM" == "docker" ]]; then
+            reason="Docker base image update (the Dockerfile is not built on PRs, see #35)"
+          elif [[ ",$DEPENDENCIES," == *",torch,"* && "$UPDATE_TYPE" == "version-update:semver-minor" ]]; then
+            reason="torch minor update"
+          fi
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "update-type=$UPDATE_TYPE ecosystem=$ECOSYSTEM dependencies=$DEPENDENCIES manual=${reason:-no}"
+
+      - name: Enable auto-merge
+        if: steps.policy.outputs.reason == ''
+        run: gh pr merge --auto --squash "$PR_URL"
+
+      - name: Flag for manual merge
+        if: steps.policy.outputs.reason != ''
+        env:
+          REASON: ${{ steps.policy.outputs.reason }}
+          ALREADY_FLAGGED: ${{ contains(github.event.pull_request.labels.*.name, 'manual-merge') }}
+        run: |
+          # Dependabot rebases re-run this job; comment only once.
+          [[ "$ALREADY_FLAGGED" == "true" ]] && exit 0
+          gh pr merge --disable-auto "$PR_URL" 2>/dev/null || true
+          gh pr edit "$PR_URL" --add-label manual-merge
+          gh pr comment "$PR_URL" --body "Not auto-merged: $REASON. Review and merge manually."

@@ -1,0 +1,66 @@
+version: 2
+
+# Minor/patch updates auto-merge via .github/workflows/dependabot-automerge.yml once required checks pass.
+# Majors, torch minors and all Docker updates are labelled manual-merge and left for a human.
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
+    open-pull-requests-limit: 10
+    labels: [dependencies]
+    commit-message:
+      prefix: build(deps)
+      prefix-development: build(deps-dev)
+    groups:
+      # Contrib (0.Xb0) and core (1.Y) release in lockstep and instrumentations pin exact versions,
+      # so every update type is grouped; a group containing a major becomes a manual merge.
+      opentelemetry:
+        patterns: ["opentelemetry-*"]
+      web:
+        patterns: [fastapi, starlette, pydantic, "pydantic-*", uvicorn, httpx, websockets]
+        update-types: [minor, patch]
+      scientific:
+        patterns: [numpy, pandas, scikit-learn, matplotlib]
+        update-types: [minor, patch]
+      dev-tools:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
+    labels: [dependencies, docker]
+    commit-message:
+      prefix: build(docker)
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
+    labels: [dependencies]
+    commit-message:
+      prefix: ci(deps)
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
