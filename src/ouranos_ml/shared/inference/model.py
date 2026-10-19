@@ -27,7 +27,7 @@ class Model(nn.Module):
 
         self.linear = nn.Linear(hidden_size, prediction_horizon * output_size)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor) -> Tensor:  # ty: ignore[invalid-mutable-override]
         """Forward pass through the model."""
         lstm_out, _ = self.lstm(x)
         last_hidden = lstm_out[:, -1, :]
