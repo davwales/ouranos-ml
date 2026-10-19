@@ -44,7 +44,6 @@ updates:
       timezone: America/Chicago
     cooldown:
       default-days: 3
-      semver-major-days: 7
     labels: [dependencies, docker]
     commit-message:
       prefix: build(docker)
@@ -58,7 +57,6 @@ updates:
       timezone: America/Chicago
     cooldown:
       default-days: 3
-      semver-major-days: 7
     labels: [dependencies]
     commit-message:
       prefix: ci(deps)
