@@ -1,8 +1,10 @@
+FROM ghcr.io/astral-sh/uv:0.11 AS uv
+
 FROM pytorch/pytorch:2.13.0-cuda13.2-cudnn9-runtime
 
 WORKDIR /app
 
-COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /uvx /bin/
+COPY --from=uv /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
