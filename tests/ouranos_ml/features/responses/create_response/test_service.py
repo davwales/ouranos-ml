@@ -75,6 +75,17 @@ def test_to_create_params_when_minimal_request_should_omit_unset_fields():
     assert params == {"model": "test-model", "input": "Hello, world"}
 
 
+def test_to_create_params_when_previous_response_id_set_should_not_forward_it():
+    # Arrange
+    request = make_create_response_request(previous_response_id="resp_1")
+
+    # Act
+    params = _to_create_params(request)
+
+    # Assert
+    assert "previous_response_id" not in params
+
+
 def test_to_create_params_when_all_fields_set_should_build_sdk_params():
     # Arrange
     request = make_create_response_request(
