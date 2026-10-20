@@ -179,8 +179,9 @@ class ReasoningConfig(BaseSchema):
 class CreateResponseRequest(BaseSchema):
     """Request for ``POST /responses``, limited to the fields the LLM backend supports.
 
-    Other OpenAI fields (``previous_response_id``, ``tool_choice``, ``store``, ...) are ignored,
-    as the backend would ignore them.
+    ``previous_response_id`` is accepted only so the endpoint can reject it (the API is stateless) and is
+    never sent upstream. Other OpenAI fields (``tool_choice``, ``store``, ...) are ignored, as the backend
+    would ignore them.
     """
 
     model: str
@@ -193,6 +194,7 @@ class CreateResponseRequest(BaseSchema):
     top_p: float | None = None
     max_output_tokens: int | None = None
     stream: bool = False
+    previous_response_id: str | None = None
 
 
 class ResponseError(BaseSchema):

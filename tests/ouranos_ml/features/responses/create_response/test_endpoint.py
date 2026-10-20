@@ -128,6 +128,27 @@ async def test_create_response_endpoint_when_hosted_tool_should_return_422_witho
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_create_response_endpoint_when_previous_response_id_should_return_400_without_calling_upstream(
+    async_client, stream
+):
+    # Arrange
+    payload = {"model": "test-model", "input": "hi", "previous_response_id": "resp_1", "stream": stream}
+
+    # Act
+    with patch(GET_CLIENT) as mock_get_client:
+        response = await async_client.post("/responses", json=payload)
+
+    # Assert
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error["type"] == "invalid_request_error"
+    assert error["param"] == "previous_response_id"
+    assert "stateless" in error["message"]
+    mock_get_client.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_create_response_endpoint_when_model_missing_should_return_422(async_client):
     # Arrange
     payload = {"input": "hi"}

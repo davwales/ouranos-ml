@@ -68,13 +68,24 @@ def test_create_response_request_when_outside_supported_subset_should_raise_vali
 
 def test_create_response_request_when_unmodeled_spec_field_should_ignore_it():
     # Arrange
-    payload = {"model": "test-model", "input": "hi", "previous_response_id": "resp_1", "tool_choice": "required"}
+    payload = {"model": "test-model", "input": "hi", "store": True, "tool_choice": "required"}
 
     # Act
     request = CreateResponseRequest.model_validate(payload)
 
     # Assert
-    assert "previous_response_id" not in request.model_dump()
+    assert "store" not in request.model_dump()
+
+
+def test_create_response_request_when_previous_response_id_should_parse_it():
+    # Arrange
+    payload = {"model": "test-model", "input": "hi", "previousResponseId": "resp_1"}
+
+    # Act
+    request = CreateResponseRequest.model_validate(payload)
+
+    # Assert
+    assert request.previous_response_id == "resp_1"
 
 
 def test_create_response_request_when_tools_and_json_schema_should_parse_and_keep_schema_wire_name():
