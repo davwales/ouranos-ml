@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     """Configurable values for the Ouranos ML application."""
 
     llm_openai_base_url: str = "http://localhost:11434/v1"
+    llm_timeout_seconds: float = 300.0
+    llm_max_retries: int = 0
     health_check_timeout_seconds: float = 5.0
     port: int = 8000
     models_dir: str = "models"

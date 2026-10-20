@@ -93,3 +93,30 @@ def test_settings_when_loki_env_vars_set_should_parse_logging_fields(monkeypatch
     assert settings.log_app_name == "Test.App"
     assert settings.loki_base_url == "http://loki:3100"
     assert settings.loki_tenant_id == "acme"
+
+
+def test_settings_when_defaults_should_fail_fast_on_llm_calls() -> None:
+    """Test that the LLM client settings default to a 300s read timeout with no retries."""
+    # Arrange
+    get_settings.cache_clear()
+
+    # Act
+    settings = Settings()
+
+    # Assert
+    assert settings.llm_timeout_seconds == 300.0
+    assert settings.llm_max_retries == 0
+
+
+def test_settings_when_llm_env_vars_set_should_parse_timeout_and_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that the LLM client settings bind from environment variables."""
+    # Arrange
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "120")
+    monkeypatch.setenv("LLM_MAX_RETRIES", "2")
+
+    # Act
+    settings = Settings()
+
+    # Assert
+    assert settings.llm_timeout_seconds == 120.0
+    assert settings.llm_max_retries == 2
