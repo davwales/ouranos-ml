@@ -45,10 +45,6 @@ async def handle_stream(
     query: ChatCompletionsRequest,
 ) -> AsyncGenerator[ChatCompletionChunkResponse]:
     """Streams a chat completion response based on the provided query."""
-    if not query.messages:
-        logger.debug("chat completion skipped, messages empty", model=query.model)
-        return
-
     logger.debug(
         "chat completion requested",
         model=query.model,
@@ -61,10 +57,6 @@ async def handle_stream(
 
 async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
     """Returns a fully constructed chat completion response."""
-    if not query.messages:
-        logger.debug("chat completion skipped, messages empty", model=query.model)
-        return _empty_response(query.model)
-
     logger.debug(
         "chat completion requested",
         model=query.model,

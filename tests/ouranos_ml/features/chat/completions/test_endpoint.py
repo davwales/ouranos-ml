@@ -50,11 +50,13 @@ async def test_completions_endpoint_when_stream_false_should_return_200_json(asy
 
 
 @pytest.mark.asyncio
-async def test_completions_endpoint_when_empty_messages_should_return_200_with_empty_choices(async_client):
+@pytest.mark.parametrize("stream", [False, True])
+async def test_completions_endpoint_when_empty_messages_should_return_422(async_client, stream):
     # Arrange
     payload = {
         "model": "test-model",
         "messages": [],
+        "stream": stream,
     }
 
     # Act
@@ -62,8 +64,8 @@ async def test_completions_endpoint_when_empty_messages_should_return_200_with_e
         response = await async_client.post("/chat/completions", json=payload)
 
     # Assert
-    assert response.status_code == 200
-    assert response.json()["choices"] == []
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "messages"]
     mock_get_client.assert_not_called()
 
 

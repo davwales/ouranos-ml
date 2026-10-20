@@ -83,7 +83,7 @@ class ChatCompletionsRequest(BaseSchema):
     """Request for generating a chat completion."""
 
     model: str
-    messages: list[RequestMessage]
+    messages: list[RequestMessage] = Field(min_length=1)
 
     top_p: float = 1.0
     temperature: float = 1.0

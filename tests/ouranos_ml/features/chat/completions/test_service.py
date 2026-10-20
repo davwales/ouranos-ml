@@ -26,21 +26,6 @@ from tests.ouranos_ml.shared.openai_mocks import make_mock_stream
 
 
 @pytest.mark.asyncio
-async def test_handle_when_messages_empty_should_return_empty_choices():
-    # Arrange
-    request = make_chat_request(messages=[])
-
-    # Act
-    response = await handle(request)
-
-    # Assert
-    assert response.choices == []
-    assert response.usage.prompt_tokens == 0
-    assert response.usage.completion_tokens == 0
-    assert response.usage.total_tokens == 0
-
-
-@pytest.mark.asyncio
 async def test_handle_when_non_empty_messages_should_aggregate_chunks():
     # Arrange
     chunk1 = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello ")
@@ -118,18 +103,6 @@ async def test_handle_when_single_chunk_should_return_that_content():
 
     # Assert
     assert response.choices[0].message.content == "Hi"
-
-
-@pytest.mark.asyncio
-async def test_handle_stream_when_messages_empty_should_yield_nothing():
-    # Arrange
-    request = make_chat_request(messages=[])
-
-    # Act
-    results = [chunk async for chunk in handle_stream(request)]
-
-    # Assert
-    assert results == []
 
 
 @pytest.mark.asyncio
@@ -471,9 +444,10 @@ async def test_handle_when_client_raises_should_propagate_and_log():
     mock_client = MagicMock()
     mock_client.chat.completions.stream.side_effect = RuntimeError("upstream down")
 
-    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client, patch(
-        "ouranos_ml.features.chat.completions.service.logger"
-    ) as mock_logger:
+    with (
+        patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client,
+        patch("ouranos_ml.features.chat.completions.service.logger") as mock_logger,
+    ):
         mock_get_client.return_value = mock_client
         request = make_chat_request()
 
@@ -490,9 +464,10 @@ async def test_handle_stream_when_client_raises_should_propagate_and_log():
     mock_client = MagicMock()
     mock_client.chat.completions.stream.side_effect = RuntimeError("upstream down")
 
-    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client, patch(
-        "ouranos_ml.features.chat.completions.service.logger"
-    ) as mock_logger:
+    with (
+        patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client,
+        patch("ouranos_ml.features.chat.completions.service.logger") as mock_logger,
+    ):
         mock_get_client.return_value = mock_client
         request = make_chat_request(stream=True)
 
