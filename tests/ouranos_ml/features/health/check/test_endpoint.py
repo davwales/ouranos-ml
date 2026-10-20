@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from ouranos_ml.features.health.check.schemas import CheckStatus, HealthCheck, HealthResponse, ServiceStatus
 from ouranos_ml.features.health.router import health_router
+from tests.ouranos_ml.shared.factories.health_factories import make_health_check, make_health_response
 
 
 @pytest.fixture
@@ -55,3 +56,43 @@ async def test_health_endpoint_when_get_should_return_health_response_shape(asyn
     assert "checks" in body
     assert body["status"] == "healthy"
     assert "llm" in body["checks"]
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_when_unhealthy_should_return_503_with_health_body(async_client):
+    # Arrange
+    mock_response = make_health_response(
+        status=ServiceStatus.UNHEALTHY,
+        checks={"llm": make_health_check(status=CheckStatus.UNHEALTHY, description="LLM backend is unreachable")},
+    )
+    with patch(
+        "ouranos_ml.features.health.check.endpoint.handle",
+        new_callable=AsyncMock,
+        return_value=mock_response,
+    ):
+        # Act
+        response = await async_client.get("/health")
+
+    # Assert
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "unhealthy"
+    assert body["checks"]["llm"]["status"] == "unhealthy"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("service_status", [ServiceStatus.DEGRADED, ServiceStatus.NOT_CONFIGURED])
+async def test_health_endpoint_when_degraded_or_not_configured_should_return_200(async_client, service_status):
+    # Arrange
+    mock_response = make_health_response(status=service_status)
+    with patch(
+        "ouranos_ml.features.health.check.endpoint.handle",
+        new_callable=AsyncMock,
+        return_value=mock_response,
+    ):
+        # Act
+        response = await async_client.get("/health")
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json()["status"] == service_status.value
