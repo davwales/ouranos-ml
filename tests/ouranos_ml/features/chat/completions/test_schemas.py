@@ -12,6 +12,7 @@ from ouranos_ml.features.chat.completions.schemas import (
     StreamOptions,
     Usage,
 )
+from pydantic import ValidationError
 from tests.ouranos_ml.shared.factories.chat_factories import make_json_schema_response_format
 
 
@@ -55,6 +56,15 @@ def test_chat_completions_request_when_messages_missing_should_raise_validation_
 
     # Act
     with pytest.raises(ValueError):
+        ChatCompletionsRequest.model_validate(input_data)
+
+
+def test_chat_completions_request_when_messages_empty_should_raise_validation_error():
+    # Arrange
+    input_data = {"model": "test-model", "messages": []}
+
+    # Act & Assert
+    with pytest.raises(ValidationError, match="messages"):
         ChatCompletionsRequest.model_validate(input_data)
 
 
