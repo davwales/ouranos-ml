@@ -1,3 +1,5 @@
+import importlib.metadata
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +16,11 @@ from ouranos_ml.shared.infra.openai.errors import register_openai_error_handler
 from ouranos_ml.shared.infra.swarmui.errors import register_swarmui_error_handler
 from ouranos_ml.shared.logging import RequestLoggingMiddleware, configure_logging
 
-app = FastAPI()
+app = FastAPI(
+    title="Ouranos ML",
+    version=importlib.metadata.version("ouranos-ml"),
+    description="OpenAI-compatible LLM, embeddings, and image generation proxies, plus Plutus financial forecasting.",
+)
 
 app.add_middleware(
     CORSMiddleware,

@@ -39,4 +39,14 @@ async def _create_response(request: CreateResponseRequest) -> ResponseObject | S
 
 def register(router: APIRouter) -> None:
     """Register create-response endpoints on the provided router."""
-    router.post("", response_model=None)(_create_response)
+    router.post(
+        "",
+        response_model=None,
+        responses={
+            200: {
+                "model": ResponseObject,
+                "description": "A response object as JSON, or a stream of named SSE events (no `[DONE]`) when `stream` is true.",
+                "content": {"text/event-stream": {"schema": {"type": "string"}}},
+            }
+        },
+    )(_create_response)

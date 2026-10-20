@@ -149,3 +149,15 @@ async def test_generate_images_endpoint_when_request_invalid_should_return_422(a
 
     # Assert
     assert response.status_code == 422
+
+
+def test_generate_images_endpoint_openapi_when_generated_should_document_json_and_sse_responses(app):
+    # Arrange
+    path = "/images/generations"
+
+    # Act
+    response = app.openapi()["paths"][path]["post"]["responses"]["200"]
+
+    # Assert
+    assert response["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/GenerateImagesResponse"}
+    assert "text/event-stream" in response["content"]

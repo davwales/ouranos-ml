@@ -25,4 +25,14 @@ async def _generate_images(request: GenerateImagesRequest) -> GenerateImagesResp
 
 def register(router: APIRouter) -> None:
     """Register generate-images endpoints on the provided router."""
-    router.post("/generations", response_model=None)(_generate_images)
+    router.post(
+        "/generations",
+        response_model=None,
+        responses={
+            200: {
+                "model": GenerateImagesResponse,
+                "description": "Generated images as JSON, or a stream of named SSE progress events (no `[DONE]`) when `stream` is true.",
+                "content": {"text/event-stream": {"schema": {"type": "string"}}},
+            }
+        },
+    )(_generate_images)

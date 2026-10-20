@@ -23,4 +23,14 @@ async def _completions(request: ChatCompletionsRequest) -> ChatCompletionsRespon
 
 def register(router: APIRouter) -> None:
     """Register chat completions endpoints on the provided router."""
-    router.post("/completions", response_model=None)(_completions)
+    router.post(
+        "/completions",
+        response_model=None,
+        responses={
+            200: {
+                "model": ChatCompletionsResponse,
+                "description": "A chat completion as JSON, or an SSE stream of chunks ending in `[DONE]` when `stream` is true.",
+                "content": {"text/event-stream": {"schema": {"type": "string"}}},
+            }
+        },
+    )(_completions)
