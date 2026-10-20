@@ -1,3 +1,4 @@
+import json
 import math
 from unittest.mock import MagicMock, patch
 
@@ -40,6 +41,51 @@ def test_predict_next_when_valid_30_point_sequence_should_return_prediction():
     assert result[0].min_price == 30.0
     assert result[0].max_price == 40.0
     assert result[0].volume == 50.0
+
+
+def test_predict_next_when_feature_fields_reordered_should_map_predictions_by_field():
+    # Arrange
+    uniform_point = PlutusForecastPoint(average_price=10.0, min_price=10.0, max_price=10.0, volume=10.0)
+    points = [uniform_point] * 30
+    mock_harness = MagicMock()
+    mock_harness.predict.return_value = np.array([[[2.0, 3.0, 4.0, 5.0]]])
+    generator = _generator_with_mock_harness(mock_harness)
+    generator.feature_fields = ["volume", "max_price", "average_price", "min_price"]
+
+    # Act
+    result = generator.predict_next([points])
+
+    # Assert
+    assert result[0].volume == 20.0
+    assert result[0].max_price == 30.0
+    assert result[0].average_price == 40.0
+    assert result[0].min_price == 50.0
+
+
+@pytest.mark.parametrize(
+    "feature_fields",
+    [
+        ["average_price", "min_price", "max_price"],
+        ["average_price", "min_price", "max_price", "volume", "volume"],
+        ["average_price", "min_price", "max_price", "close_price"],
+    ],
+)
+def test_forecast_generator_init_when_feature_fields_invalid_should_raise_value_error(tmp_path, feature_fields):
+    # Arrange
+    model_dir = tmp_path / "plutus-test"
+    model_dir.mkdir()
+    params = {"hidden_size": 8, "num_layers": 1, "dropout": 0.0, "feature_fields": feature_fields}
+    (model_dir / "params.json").write_text(json.dumps(params))
+    settings = MagicMock(models_dir=str(tmp_path), plutus_forecast_model_name="plutus-test")
+
+    # Act & Assert
+    with (
+        patch("ouranos_ml.features.plutus.forecast.service.get_settings", return_value=settings),
+        patch("ouranos_ml.features.plutus.forecast.service.Model") as mock_model,
+        pytest.raises(ValueError, match="feature_fields"),
+    ):
+        ForecastGenerator()
+    mock_model.assert_not_called()
 
 
 def test_predict_next_when_feature_max_is_zero_should_not_produce_nan():
