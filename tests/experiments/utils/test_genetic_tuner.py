@@ -112,6 +112,15 @@ def test_evolve_when_generations_zero_should_raise_value_error(tuner):
         tuner.evolve(generations=0, train_loader=None, val_loader=None)
 
 
+def test_evolve_when_params_repeat_across_generations_should_train_each_set_once(tuner, trained):
+    # Act
+    tuner.evolve(generations=5, train_loader=None, val_loader=None)
+
+    # Assert
+    keys = [tuple(sorted(params.items())) for params in trained]
+    assert len(keys) == len(set(keys))
+
+
 def test_evolve_when_early_stopping_triggers_should_return_best_params_seen(tuner, trained):
     # Act
     best = tuner.evolve(generations=50, train_loader=None, val_loader=None, early_stopping=1)

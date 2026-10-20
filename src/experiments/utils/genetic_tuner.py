@@ -85,14 +85,19 @@ class GeneticTuner:
         best_params = population[0]
         best_fitness = float("inf")
         generations_no_improve = 0
+        # Elites and repeated children would otherwise be retrained every generation. Caching freezes the first
+        # (noisy) score of each param set rather than re-sampling it.
+        fitness_cache: dict[tuple[tuple[str, float | int], ...], float] = {}
 
         for _generation in range(generations):
             fitness_scores = []
             for params in population:
-                harness = self.harness_factory(params)
-                harness.train(train_loader, val_loader, train_epochs)
-                val_loss = harness.validate(val_loader)
-                fitness_scores.append(val_loss)
+                key = tuple(sorted(params.items()))
+                if key not in fitness_cache:
+                    harness = self.harness_factory(params)
+                    harness.train(train_loader, val_loader, train_epochs)
+                    fitness_cache[key] = harness.validate(val_loader)
+                fitness_scores.append(fitness_cache[key])
 
             # Check for early stopping
             current_best = min(fitness_scores)
