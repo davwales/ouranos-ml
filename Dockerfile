@@ -17,4 +17,9 @@ EXPOSE 8000
 ENV PYTHONUNBUFFERED=1
 ENV OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 
+# The base image has no curl/wget, so probe with the venv's Python; urlopen raises on the 503 /health
+# returns when unhealthy. The start period covers the torch/CUDA import before uvicorn binds.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD ["/app/.venv/bin/python", "-c", "import os, urllib.request; urllib.request.urlopen('http://localhost:%s/health' % os.environ.get('PORT', '8000'), timeout=8)"]
+
 CMD ["uv", "run", "opentelemetry-instrument", "uv", "run", "ouranos_ml"]
