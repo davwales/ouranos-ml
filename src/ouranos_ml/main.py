@@ -16,6 +16,8 @@ from ouranos_ml.shared.logging import RequestLoggingMiddleware, configure_loggin
 
 app = FastAPI()
 
+# Added last, so CORS wraps request logging and its JSON 500s get CORS headers too.
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,7 +25,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Request-ID"],
 )
-app.add_middleware(RequestLoggingMiddleware)
 register_openai_error_handler(app)
 register_swarmui_error_handler(app)
 

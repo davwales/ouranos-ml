@@ -5,8 +5,11 @@ from collections.abc import AsyncGenerator, AsyncIterator
 
 import pytest
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from httpx import ASGITransport, AsyncClient
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.trace import StatusCode
 from structlog.contextvars import get_contextvars
 
 from ouranos_ml.shared.domain.core.settings import Settings
@@ -44,6 +47,14 @@ def _app() -> FastAPI:
     @app.get("/boom")
     async def boom() -> dict[str, str]:
         raise RuntimeError("kaboom")
+
+    @app.get("/stream-boom")
+    async def stream_boom() -> StreamingResponse:
+        async def events() -> AsyncIterator[str]:
+            yield "data: one\n\n"
+            raise RuntimeError("mid-stream")
+
+        return StreamingResponse(events(), media_type="text/event-stream")
 
     return app
 
@@ -179,25 +190,85 @@ async def test_middleware_when_response_streams_should_return_request_id_header(
 
 
 @pytest.mark.asyncio
-async def test_middleware_when_handler_raises_should_log_error_and_return_500(
+async def test_middleware_when_handler_raises_should_log_error_and_return_json_500(
     client: AsyncClient, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Test that unhandled exceptions emit an error event with the traceback."""
+    """Test that unhandled exceptions log the traceback once and return an OpenAI-style JSON 500."""
     # Arrange
     configure_logging(Settings())
     caplog.set_level(logging.INFO)
 
     # Act
-    response = await client.get("/boom")
+    response = await client.get("/boom", headers={"X-Request-ID": "boom-1"})
 
     # Assert
     assert response.status_code == 500
+    assert response.headers["x-request-id"] == "boom-1"
+    assert response.json() == {
+        "error": {"message": "Internal server error", "type": "server_error", "request_id": "boom-1"},
+    }
     records = _middleware_records(caplog)
     assert len(records) == 1
     event = records[0].msg
     assert event["message"] == "request failed"
     assert event["path"] == "/boom"
+    assert event["request_id"] == "boom-1"
     assert "RuntimeError" in event["exception"]
+
+
+@pytest.mark.asyncio
+async def test_middleware_when_handler_raises_should_record_exception_on_active_span(client: AsyncClient) -> None:
+    """Test that a swallowed exception is still recorded on the active OTel span."""
+    # Arrange
+    configure_logging(Settings())
+    tracer = TracerProvider().get_tracer(__name__)
+
+    # Act
+    with tracer.start_as_current_span("request") as span:
+        await client.get("/boom")
+
+    # Assert
+    assert [event.name for event in span.events] == ["exception"]
+    assert span.status.status_code == StatusCode.ERROR
+    assert span.status.description == "RuntimeError: kaboom"
+
+
+@pytest.mark.asyncio
+async def test_middleware_when_stream_fails_after_start_should_log_and_reraise(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test that a failure after the response started is logged and re-raised, not answered twice."""
+    # Arrange
+    configure_logging(Settings())
+    caplog.set_level(logging.INFO)
+    transport = ASGITransport(app=_app())
+
+    # Act & Assert
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with pytest.raises(RuntimeError, match="mid-stream"):
+            await client.get("/stream-boom")
+    records = _middleware_records(caplog)
+    assert [r.msg["message"] for r in records] == ["request failed"]
+
+
+@pytest.mark.asyncio
+async def test_middleware_when_wrapped_by_cors_should_return_cors_headers_on_json_500() -> None:
+    """Test that the JSON 500 passes through an outer CORS middleware, exposing the request id."""
+    # Arrange
+    configure_logging(Settings())
+    app = _app()
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], expose_headers=["X-Request-ID"])
+    transport = ASGITransport(app=app)
+
+    # Act
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/boom", headers={"Origin": "http://browser.test"})
+
+    # Assert
+    assert response.status_code == 500
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert response.headers["access-control-expose-headers"] == "X-Request-ID"
+    assert response.headers["x-request-id"]
 
 
 @pytest.mark.asyncio

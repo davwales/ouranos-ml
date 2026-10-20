@@ -5,6 +5,9 @@ import time
 from uuid import uuid4
 
 import structlog
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
@@ -25,12 +28,24 @@ def _request_id(scope: Scope) -> str:
     return uuid4().hex
 
 
+def _record_exception_on_span(exc: Exception) -> None:
+    """Mark the active span failed, as the OTel FastAPI instrumentation would if the exception reached it."""
+    span = trace.get_current_span()
+    if span.is_recording():
+        span.record_exception(exc)
+        span.set_status(Status(StatusCode.ERROR, f"{type(exc).__name__}: {exc}"))
+
+
 class RequestLoggingMiddleware:
     """Pure ASGI middleware emitting a completion event for every HTTP request.
 
     Uses a raw ASGI wrapper (not BaseHTTPMiddleware) so streaming responses such
     as the chat completions SSE endpoint are unaffected. Every HTTP response,
     including excluded paths, carries the request id as ``x-request-id``.
+
+    An unhandled exception raised before the response starts is answered here
+    with an OpenAI-style JSON 500 instead of being re-raised, so the error body
+    still gets the request id header and the outer CORS headers.
     """
 
     EXCLUDED_PATHS: frozenset[str] = frozenset({"/health"})
@@ -40,7 +55,7 @@ class RequestLoggingMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Tag the request with an id and log its completion unless the path is excluded."""
+        """Tag the request with an id, log its outcome, and turn unhandled exceptions into a JSON 500."""
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -60,9 +75,22 @@ class RequestLoggingMiddleware:
 
         try:
             await self.app(scope, receive, send_wrapper)
-        except Exception:
+        except Exception as exc:
             logger.error("request failed", method=scope["method"], path=scope["path"], exc_info=True)
-            raise
+            if status_code:
+                raise
+            _record_exception_on_span(exc)
+            response = JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "message": "Internal server error",
+                        "type": "server_error",
+                        "request_id": request_id,
+                    },
+                },
+            )
+            await response(scope, receive, send_wrapper)
         else:
             if scope["path"] not in self.EXCLUDED_PATHS:
                 logger.info(
