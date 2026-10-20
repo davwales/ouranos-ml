@@ -26,6 +26,15 @@ class PlutusForecastingExperiment(BaseExperiment):
 
     NAME: str = "plutus_forecasting"
 
+    def __init__(self, symbol_limit: int | None = None) -> None:
+        """Initializes the experiment.
+
+        Args:
+            symbol_limit: Train on only the first N symbols, useful for quick development runs. None trains on every
+                symbol.
+        """
+        self.symbol_limit = symbol_limit
+
     def run(self) -> None:
         """Main entry point for the plutus forecasting experiment."""
         seed = 42
@@ -37,9 +46,10 @@ class PlutusForecastingExperiment(BaseExperiment):
         logging.info("Loading data...")
         df = pd.read_csv("datasets/plutus.trades.training.daily.csv")
 
-        # It can be helpful during development to limit the number of symbols being processed.
-        unique_symbols = df["symbolId"].unique()
-        df = df[df["symbolId"].isin(unique_symbols[:100])]
+        if self.symbol_limit is not None:
+            unique_symbols = df["symbolId"].unique()
+            df = df[df["symbolId"].isin(unique_symbols[: self.symbol_limit])]
+            logging.info("Limited data to the first %s of %s symbols.", self.symbol_limit, len(unique_symbols))
 
         logging.info("Splitting data...")
         train_df, val_df, test_df = split_by_bucket(df, bucket_field="bucket")
