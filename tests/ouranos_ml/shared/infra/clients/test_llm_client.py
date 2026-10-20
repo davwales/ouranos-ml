@@ -1,3 +1,5 @@
+import httpx
+import pytest
 from openai import AsyncOpenAI
 
 from ouranos_ml.shared.domain.core.settings import get_settings
@@ -43,3 +45,35 @@ def test_get_openai_client_when_called_twice_should_return_same_instance() -> No
 
     # Assert
     assert first is second
+
+
+def test_get_openai_client_when_called_should_use_default_timeout_and_no_retries() -> None:
+    """Test that get_openai_client applies the default timeout and disables retries."""
+    # Arrange
+    get_openai_client.cache_clear()
+    get_settings.cache_clear()
+
+    # Act
+    client = get_openai_client()
+
+    # Assert
+    assert client.timeout == httpx.Timeout(300.0, connect=5.0)
+    assert client.max_retries == 0
+
+
+def test_get_openai_client_when_env_vars_set_should_use_configured_timeout_and_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that get_openai_client passes the configured timeout and max retries to the SDK."""
+    # Arrange
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "12.5")
+    monkeypatch.setenv("LLM_MAX_RETRIES", "3")
+    get_openai_client.cache_clear()
+    get_settings.cache_clear()
+
+    # Act
+    client = get_openai_client()
+
+    # Assert
+    assert client.timeout == httpx.Timeout(12.5, connect=5.0)
+    assert client.max_retries == 3

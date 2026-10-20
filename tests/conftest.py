@@ -29,16 +29,6 @@ def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     LOKI_BASE_URL would see logging tests build a real Loki handler.
     """
     monkeypatch.setattr(Settings, "model_config", {**Settings.model_config, "env_file": None})
-    for name in (
-        "LLM_OPENAI_BASE_URL",
-        "HEALTH_CHECK_TIMEOUT_SECONDS",
-        "PORT",
-        "MODELS_DIR",
-        "PLUTUS_FORECAST_MODEL_NAME",
-        "LOG_LEVEL",
-        "LOG_JSON",
-        "LOG_APP_NAME",
-        "LOKI_BASE_URL",
-        "LOKI_TENANT_ID",
-    ):
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
         monkeypatch.delenv(name, raising=False)
