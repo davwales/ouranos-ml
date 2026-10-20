@@ -10,9 +10,11 @@ from ouranos_ml.features.health.check.schemas import (
     GpuCheckData,
     HealthCheck,
     HealthResponse,
+    PlutusCheckData,
     ServiceStatus,
     SwarmUICheckData,
 )
+from ouranos_ml.features.plutus.forecast.service import get_forecast_generator
 from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.infra.clients.llm_client import get_openai_client
 from ouranos_ml.shared.infra.clients.swarmui_client import get_swarmui_client
@@ -116,10 +118,35 @@ def check_gpu() -> HealthCheck:
     return HealthCheck(status=CheckStatus.DEGRADED, description="CUDA not available — running on CPU")
 
 
+def check_plutus() -> HealthCheck:
+    """Check if the Plutus forecast model artifact loads.
+
+    Loading goes through the cached forecast generator, so the first probe pays the model load (and warms it for
+    forecast requests). Missing artifacts are NOT_CONFIGURED; other load failures are DEGRADED rather than UNHEALTHY,
+    for the same reason as SwarmUI.
+    """
+    settings = get_settings()
+    try:
+        generator = get_forecast_generator()
+    except FileNotFoundError:
+        return HealthCheck(status=CheckStatus.NOT_CONFIGURED, description="Plutus model artifacts not found")
+    except Exception as exc:
+        _log_failure("plutus", exc)
+        return HealthCheck(status=CheckStatus.DEGRADED, description="Plutus model failed to load")
+
+    _log_recovery("plutus")
+
+    data = PlutusCheckData(model_name=settings.plutus_forecast_model_name, sequence_length=generator.sequence_length)
+    return HealthCheck(
+        status=CheckStatus.HEALTHY, description="Plutus model is loaded", data=data.model_dump(by_alias=True)
+    )
+
+
 _CHECKS: list[CheckDef] = [
     CheckDef(name="llm", fn=check_llm_backend, needs_timeout=True),
     CheckDef(name="gpu", fn=check_gpu, needs_timeout=False),
     CheckDef(name="swarmui", fn=check_swarmui, needs_timeout=True),
+    CheckDef(name="plutus", fn=check_plutus, needs_timeout=False),
 ]
 
 

@@ -36,6 +36,13 @@ class SwarmUICheckData(BaseSchema):
     backend_status: str
 
 
+class PlutusCheckData(BaseSchema):
+    """Structured data payload for the Plutus forecast model health check."""
+
+    model_name: str
+    sequence_length: int
+
+
 class HealthCheck(BaseSchema):
     """Schema for a single health check result."""
 
