@@ -290,3 +290,15 @@ async def test_completions_endpoint_when_stream_true_with_response_format_should
     assert response.status_code == 200
     assert "text/event-stream" in response.headers.get("content-type", "")
     assert "data: [DONE]" in response.text
+
+
+def test_completions_endpoint_openapi_when_generated_should_document_json_and_sse_responses(app):
+    # Arrange
+    path = "/chat/completions"
+
+    # Act
+    response = app.openapi()["paths"][path]["post"]["responses"]["200"]
+
+    # Assert
+    assert response["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/ChatCompletionsResponse"}
+    assert "text/event-stream" in response["content"]

@@ -210,3 +210,15 @@ async def test_create_response_endpoint_when_stream_echoes_json_schema_should_us
     frame = json.loads(_parse_sse(response.text)[0][1])
     assert frame["response"]["text"]["format"]["schema"] == {"type": "object"}
     assert 'json_schema":' not in response.text
+
+
+def test_create_response_endpoint_openapi_when_generated_should_document_json_and_sse_responses(app):
+    # Arrange
+    path = "/responses"
+
+    # Act
+    response = app.openapi()["paths"][path]["post"]["responses"]["200"]
+
+    # Assert
+    assert response["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/ResponseObject"}
+    assert "text/event-stream" in response["content"]
