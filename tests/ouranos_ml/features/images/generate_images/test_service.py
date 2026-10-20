@@ -167,10 +167,11 @@ async def test_handle_when_overrides_given_should_prefer_explicit_then_params_th
 
 
 @pytest.mark.asyncio
-async def test_handle_when_model_not_found_should_raise_model_not_found():
+@pytest.mark.parametrize("message", ["Model not found.", "model NOT FOUND", "Model 'nope' not found!"])
+async def test_handle_when_model_not_found_should_raise_model_not_found(message):
     # Arrange
     client = make_swarmui_client()
-    client.call.side_effect = SwarmUIError("Model not found.")
+    client.call.side_effect = SwarmUIError(message)
     request = make_generate_images_request(model="nope")
 
     # Act & Assert
@@ -333,6 +334,25 @@ async def test_open_stream_when_metadata_unparseable_should_fall_back_to_request
     assert isinstance(completed, CompletedEvent)
     assert completed.seed is None
     assert completed.size == "512x768"
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_no_size_known_should_leave_size_unset():
+    # Arrange
+    image = make_swarm_image()
+    image["metadata"] = "not json"
+    description = make_model_description(width=0, height=0)
+    client = make_swarmui_client(description=description, messages=[image])
+    request = make_generate_images_request(stream=True)
+
+    # Act
+    events = await _collect(request, client)
+
+    # Assert
+    completed = events[0]
+    assert isinstance(completed, CompletedEvent)
+    assert completed.size is None
+    assert "width" not in _sent_payload(client)
 
 
 @pytest.mark.asyncio
