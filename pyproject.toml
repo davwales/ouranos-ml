@@ -47,6 +47,7 @@ explicit = true
 [project.scripts]
 start = "ouranos_ml.main:main"
 ouranos_ml = "ouranos_ml.main:main"
+dev = "ouranos_ml.main:dev"
 experiment = "experiments.main:main"
 
 [build-system]
