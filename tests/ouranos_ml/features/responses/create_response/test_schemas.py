@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 
 from ouranos_ml.features.responses.create_response.schemas import (
@@ -30,8 +32,10 @@ from tests.ouranos_ml.shared.factories.responses_factories import (
     make_output_message,
     make_response_payload,
     make_text_stream_events,
+    make_web_search_call_item,
 )
 
+LOGGER = "ouranos_ml.features.responses.create_response.schemas.logger"
 _INPUT_ITEMS: TypeAdapter[list[InputItem]] = TypeAdapter(list[InputItem])
 _OUTPUT_ITEMS: TypeAdapter[list[OutputItem]] = TypeAdapter(list[OutputItem])
 
@@ -108,6 +112,33 @@ def test_response_object_when_validated_from_upstream_payload_should_parse_outpu
     assert response.usage.total_tokens == 15
     assert response.text is not None
     assert isinstance(response.text.format, TextFormatText)
+
+
+def test_response_object_when_output_has_unmodeled_item_should_drop_it_and_warn():
+    # Arrange
+    payload = make_response_payload(output=[make_web_search_call_item(), make_output_message()])
+
+    # Act
+    with patch(LOGGER) as mock_logger:
+        response = ResponseObject.model_validate(payload)
+
+    # Assert
+    assert len(response.output) == 1
+    assert isinstance(response.output[0], OutputMessage)
+    mock_logger.warning.assert_called_once_with("unsupported output items dropped", item_types=["web_search_call"])
+
+
+def test_response_object_when_output_items_all_modeled_should_not_warn():
+    # Arrange
+    payload = make_response_payload(output=[make_output_message(), make_function_call_item()])
+
+    # Act
+    with patch(LOGGER) as mock_logger:
+        response = ResponseObject.model_validate(payload)
+
+    # Assert
+    assert len(response.output) == 2
+    mock_logger.warning.assert_not_called()
 
 
 def test_stream_event_adapter_when_text_stream_should_parse_every_event_to_owned_type():
