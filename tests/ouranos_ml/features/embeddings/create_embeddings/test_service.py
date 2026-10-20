@@ -5,6 +5,7 @@ import pytest
 from ouranos_ml.features.embeddings.create_embeddings.service import handle
 from tests.ouranos_ml.shared.factories.embedding_factories import (
     make_embedding_request,
+    make_mock_embeddings_client,
 )
 
 
@@ -105,3 +106,50 @@ async def test_handle_when_client_raises_runtime_error_should_propagate():
         mock_get.return_value = mock_client
         with pytest.raises(RuntimeError, match="API error"):
             await handle(request)
+
+
+@pytest.mark.asyncio
+async def test_handle_when_optional_fields_unset_should_omit_them_upstream():
+    # Arrange
+    mock_client = make_mock_embeddings_client(embedding=[0.1, 0.2])
+    request = make_embedding_request(model="test-model", input="hello")
+
+    # Act
+    with patch("ouranos_ml.features.embeddings.create_embeddings.service.get_openai_client") as mock_get:
+        mock_get.return_value = mock_client
+        await handle(request)
+
+    # Assert
+    mock_client.embeddings.create.assert_awaited_once_with(model="test-model", input="hello")
+
+
+@pytest.mark.asyncio
+async def test_handle_when_optional_fields_set_should_forward_them_upstream():
+    # Arrange
+    mock_client = make_mock_embeddings_client(embedding=[0.1, 0.2])
+    request = make_embedding_request(model="test-model", input="hello", dimensions=2, encoding_format="float")
+
+    # Act
+    with patch("ouranos_ml.features.embeddings.create_embeddings.service.get_openai_client") as mock_get:
+        mock_get.return_value = mock_client
+        await handle(request)
+
+    # Assert
+    mock_client.embeddings.create.assert_awaited_once_with(
+        model="test-model", input="hello", dimensions=2, encoding_format="float"
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_when_encoding_format_base64_should_pass_string_through():
+    # Arrange
+    mock_client = make_mock_embeddings_client(embedding="AACAPwAAAEA=")
+    request = make_embedding_request(model="test-model", input="hello", encoding_format="base64")
+
+    # Act
+    with patch("ouranos_ml.features.embeddings.create_embeddings.service.get_openai_client") as mock_get:
+        mock_get.return_value = mock_client
+        result = await handle(request)
+
+    # Assert
+    assert result.data[0].embedding == "AACAPwAAAEA="

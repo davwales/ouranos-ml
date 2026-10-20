@@ -4,6 +4,7 @@ import pytest
 from fastapi import FastAPI
 
 from ouranos_ml.features.embeddings.router import embeddings_router
+from tests.ouranos_ml.shared.factories.embedding_factories import make_mock_embeddings_client
 
 
 @pytest.fixture
@@ -112,3 +113,34 @@ async def test_embeddings_endpoint_when_list_input_should_return_200(async_clien
 
     # Assert
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_embeddings_endpoint_when_base64_requested_should_forward_options_and_return_string(async_client):
+    # Arrange
+    mock_client = make_mock_embeddings_client(embedding="AACAPwAAAEA=")
+    payload = {"model": "test", "input": "hello", "dimensions": 2, "encoding_format": "base64"}
+
+    # Act
+    with patch("ouranos_ml.features.embeddings.create_embeddings.service.get_openai_client") as mock_get:
+        mock_get.return_value = mock_client
+        response = await async_client.post("/embeddings", json=payload)
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json()["data"][0]["embedding"] == "AACAPwAAAEA="
+    mock_client.embeddings.create.assert_awaited_once_with(
+        model="test", input="hello", dimensions=2, encoding_format="base64"
+    )
+
+
+@pytest.mark.asyncio
+async def test_embeddings_endpoint_when_dimensions_zero_should_return_422(async_client):
+    # Arrange
+    payload = {"model": "test", "input": "hello", "dimensions": 0}
+
+    # Act
+    response = await async_client.post("/embeddings", json=payload)
+
+    # Assert
+    assert response.status_code == 422
