@@ -1,8 +1,10 @@
 import json
+import logging
 import os
 import random
 from collections.abc import Callable
 from copy import deepcopy
+from pathlib import Path
 
 from torch.utils.data import DataLoader
 
@@ -53,6 +55,7 @@ class GeneticTuner:
         train_epochs: int = 10,
         early_stopping: int | None = None,
         file: str | None = None,
+        use_cached: bool = False,
     ) -> dict[str, float | int]:
         """Evolves the hyperparameters by mutating and crossing over individuals in an effort to find the best
         performing values.
@@ -60,12 +63,26 @@ class GeneticTuner:
         If no early stopping is specified, the tuning will continue for the entire number of generations. If early
         stopping is set, the algorithm will stop after no improvement has been shown after the given number of
         generations.
+
+        Args:
+            generations: The maximum number of generations to evolve. Must be at least 1.
+            train_loader: The data used to train each candidate.
+            val_loader: The data used to score each candidate.
+            train_epochs: The number of epochs each candidate is trained for.
+            early_stopping: Stop after this many generations without improvement. None runs every generation.
+            file: Where the best params are written. Its parent directory is created if missing.
+            use_cached: Return the params already in ``file`` instead of tuning, when it exists.
         """
-        if file and os.path.exists(file):
-            with open(file) as f:
-                return json.load(f)
+        if generations < 1:
+            raise ValueError(f"generations must be at least 1, got {generations}.")
+
+        if use_cached and file and os.path.exists(file):
+            cached = self._load_cached(file)
+            if cached is not None:
+                return cached
 
         population = [self._create_individual() for _ in range(self.population_size)]
+        best_params = population[0]
         best_fitness = float("inf")
         generations_no_improve = 0
 
@@ -81,6 +98,7 @@ class GeneticTuner:
             current_best = min(fitness_scores)
             if current_best < best_fitness:
                 best_fitness = current_best
+                best_params = population[fitness_scores.index(current_best)]
                 generations_no_improve = 0
             else:
                 generations_no_improve += 1
@@ -106,6 +124,23 @@ class GeneticTuner:
             population = new_population
 
         if file:
+            Path(file).parent.mkdir(parents=True, exist_ok=True)
             with open(file, "w") as f:
-                json.dump(sorted_population[0], f)
-        return sorted_population[0]
+                json.dump(best_params, f, indent=4)
+        return best_params
+
+    def _load_cached(self, file: str) -> dict[str, float | int] | None:
+        """Loads previously tuned params, keeping only the keys in the param space.
+
+        Returns None when the file does not hold a value for every parameter, so the caller tunes again.
+        """
+        with open(file) as f:
+            cached = json.load(f)
+
+        missing = [key for key in self.param_space if key not in cached]
+        if missing:
+            logging.warning("Ignoring cached params in %s, missing %s.", file, missing)
+            return None
+
+        logging.info("Using cached params from %s.", file)
+        return {key: cached[key] for key in self.param_space}

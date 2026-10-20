@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
+from matplotlib.figure import Figure
 from sklearn.metrics import r2_score
 
 from experiments.base_experiment import BaseExperiment
@@ -26,14 +27,20 @@ class PlutusForecastingExperiment(BaseExperiment):
 
     NAME: str = "plutus_forecasting"
 
-    def __init__(self, symbol_limit: int | None = None) -> None:
+    def __init__(self, symbol_limit: int | None = None, retune: bool = True, show_plots: bool = False) -> None:
         """Initializes the experiment.
 
         Args:
             symbol_limit: Train on only the first N symbols, useful for quick development runs. None trains on every
                 symbol.
+            retune: Run the genetic tuner. When False, the params from the last tuning run (``tuned_params.json``)
+                are reused if present.
+            show_plots: Display the prediction plot in a window after saving it. Blocks until the window is closed,
+                so leave it off for headless runs.
         """
         self.symbol_limit = symbol_limit
+        self.retune = retune
+        self.show_plots = show_plots
 
     def run(self) -> None:
         """Main entry point for the plutus forecasting experiment."""
@@ -56,6 +63,7 @@ class PlutusForecastingExperiment(BaseExperiment):
 
         settings = get_settings()
         base_path = str(Path(settings.models_dir) / settings.plutus_forecast_model_name)
+        Path(base_path).mkdir(parents=True, exist_ok=True)
         features = ["averagePrice", "minPrice", "maxPrice", "volume"]
         prediction_horizon = 1
         param_space: dict[str, list[float | int]] = {
@@ -107,7 +115,8 @@ class PlutusForecastingExperiment(BaseExperiment):
             val_loader=val_loader,
             train_epochs=10,
             early_stopping=3,
-            file=f"{base_path}/params.json",
+            file=f"{base_path}/tuned_params.json",
+            use_cached=not self.retune,
         )
 
         logging.info(f"Using params: {params}")
@@ -137,10 +146,14 @@ class PlutusForecastingExperiment(BaseExperiment):
             json.dump(full_config, f, indent=4)
         logging.info("Saved model config: %s", full_config)
 
+        if not self.show_plots:
+            plt.switch_backend("Agg")
         predictions = harness.predict(torch.FloatTensor(x_test))
-        self._plot_predictions(y_test, predictions, features)
-        plt.savefig(f"{base_path}/predictions.png")
-        plt.show()
+        fig = self._plot_predictions(y_test, predictions, features)
+        fig.savefig(f"{base_path}/predictions.png")
+        if self.show_plots:
+            plt.show()
+        plt.close(fig)
 
     def _create_harness(
         self, input_size: int, prediction_horizon: int, output_size: int, params: dict[str, Any]
@@ -160,7 +173,7 @@ class PlutusForecastingExperiment(BaseExperiment):
 
     def _plot_predictions(
         self, y_test: np.ndarray, predictions: np.ndarray, feature_names: list[str] | None = None, sample: int = 1000
-    ) -> None:
+    ) -> Figure:
         n_features = y_test.shape[-1]
         if feature_names is None:
             feature_names = [f"Feature {i + 1}" for i in range(n_features)]
@@ -202,4 +215,5 @@ class PlutusForecastingExperiment(BaseExperiment):
             if i == n_features - 1:
                 ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
 
-        plt.tight_layout()
+        fig.tight_layout()
+        return fig
