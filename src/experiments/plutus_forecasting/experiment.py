@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import random
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -125,7 +126,8 @@ class PlutusForecastingExperiment(BaseExperiment):
 
         logging.info("Validating model...")
         test_loss = harness.validate(test_loader)
-        logging.info(f"Test loss: {test_loss:.4f}")
+        baseline_loss = self._naive_baseline_loss(test_loader, harness.loss_fn)
+        logging.info(f"Test loss: {test_loss:.4f} (last-value baseline: {baseline_loss:.4f})")
 
         logging.info("Saving model...")
         model_path = Path(base_path) / "model.pth"
@@ -154,6 +156,20 @@ class PlutusForecastingExperiment(BaseExperiment):
         if self.show_plots:
             plt.show()
         plt.close(fig)
+
+    def _naive_baseline_loss(
+        self, loader: torch.utils.data.DataLoader, loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+    ) -> float:
+        """Scores carrying each sequence's last value across the horizon, averaged like ``harness.validate``.
+
+        Inputs and targets share the same per-sequence scaling, so the loss is directly comparable to the model's.
+        """
+        total = 0.0
+        with torch.no_grad():
+            for data, target in loader:
+                prediction = data[:, -1:, :].expand(-1, target.shape[1], -1)
+                total += loss_fn(prediction, target).item()
+        return total / len(loader)
 
     def _create_harness(
         self, input_size: int, prediction_horizon: int, output_size: int, params: dict[str, Any]
