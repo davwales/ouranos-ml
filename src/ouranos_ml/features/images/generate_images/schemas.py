@@ -60,7 +60,7 @@ class GeneratedImage(BaseSchema):
 
     b64_json: str
     seed: int | None = None
-    size: str
+    size: str | None = None
     output_format: str
 
 

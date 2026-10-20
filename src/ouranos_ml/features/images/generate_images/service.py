@@ -334,7 +334,7 @@ class _Translator:
                 image_index=index,
                 b64_json=b64_json,
                 seed=params.get("seed"),
-                size=f"{width}x{height}",
+                size=f"{width}x{height}" if width and height else None,
                 output_format=output_format,
             )
         ]

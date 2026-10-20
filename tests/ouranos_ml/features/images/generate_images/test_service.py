@@ -336,6 +336,25 @@ async def test_open_stream_when_metadata_unparseable_should_fall_back_to_request
 
 
 @pytest.mark.asyncio
+async def test_open_stream_when_no_size_known_should_leave_size_unset():
+    # Arrange
+    image = make_swarm_image()
+    image["metadata"] = "not json"
+    description = make_model_description(width=0, height=0)
+    client = make_swarmui_client(description=description, messages=[image])
+    request = make_generate_images_request(stream=True)
+
+    # Act
+    events = await _collect(request, client)
+
+    # Assert
+    completed = events[0]
+    assert isinstance(completed, CompletedEvent)
+    assert completed.size is None
+    assert "width" not in _sent_payload(client)
+
+
+@pytest.mark.asyncio
 async def test_open_stream_when_swarmui_reports_error_should_end_with_error_event_and_interrupt():
     # Arrange
     client = make_swarmui_client(messages=[make_swarm_status(waiting_gens=1), make_swarm_error("bad sampler")])
