@@ -122,7 +122,7 @@ def _extract_usage(chunk_usage: object) -> Usage | None:
 
 
 async def _respond_stream(query: ChatCompletionsRequest) -> AsyncGenerator[ChatCompletionChunkResponse]:
-    """Streams a chat completion using LM Studio."""
+    """Streams a chat completion from the configured OpenAI-compatible LLM backend."""
     include_usage = query.stream_options.include_usage if query.stream_options else False
     client = get_openai_client()
 
