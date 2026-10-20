@@ -2,13 +2,36 @@ import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from structlog.testing import capture_logs
 
+from ouranos_ml.features.health.check import service
 from ouranos_ml.features.health.check.schemas import CheckStatus, HealthCheck, ServiceStatus
 from ouranos_ml.features.health.check.service import CheckDef, check_gpu, check_llm_backend, check_swarmui, handle
 from ouranos_ml.shared.infra.swarmui.errors import SwarmUIUnavailableError
 
 SWARMUI_SETTINGS = "ouranos_ml.features.health.check.service.get_settings"
 SWARMUI_CLIENT = "ouranos_ml.features.health.check.service.get_swarmui_client"
+LLM_SETTINGS = "ouranos_ml.features.health.check.service.get_settings"
+LLM_CLIENT = "ouranos_ml.features.health.check.service.get_openai_client"
+
+
+@pytest.fixture(autouse=True)
+def reset_failing_checks():
+    service._failing_checks.clear()
+    yield
+    service._failing_checks.clear()
+
+
+def _llm_client(*, fail: bool) -> MagicMock:
+    async def _model_generator():
+        yield MagicMock()
+
+    client = MagicMock()
+    if fail:
+        client.models.list.side_effect = ConnectionError("Connection refused")
+    else:
+        client.models.list.return_value = _model_generator()
+    return client
 
 
 @pytest.mark.asyncio
@@ -91,6 +114,84 @@ async def test_check_llm_backend_when_connection_fails_should_return_unhealthy()
     assert "unreachable" in result.description
 
 
+@pytest.mark.asyncio
+async def test_check_llm_backend_when_connection_fails_should_warn_without_traceback():
+    # Arrange
+    mock_settings = MagicMock(llm_openai_base_url="http://localhost:11434/v1")
+
+    with (
+        patch(LLM_SETTINGS, return_value=mock_settings),
+        patch(LLM_CLIENT, return_value=_llm_client(fail=True)),
+        capture_logs() as logs,
+    ):
+        # Act
+        await check_llm_backend(timeout=5.0)
+
+    # Assert
+    assert logs == [
+        {
+            "event": "health check failed",
+            "log_level": "warning",
+            "check": "llm",
+            "error_type": "ConnectionError",
+            "error": "Connection refused",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_check_llm_backend_when_failing_repeatedly_should_warn_once():
+    # Arrange
+    mock_settings = MagicMock(llm_openai_base_url="http://localhost:11434/v1")
+
+    with (
+        patch(LLM_SETTINGS, return_value=mock_settings),
+        patch(LLM_CLIENT, return_value=_llm_client(fail=True)),
+        capture_logs() as logs,
+    ):
+        # Act
+        await check_llm_backend(timeout=5.0)
+        await check_llm_backend(timeout=5.0)
+
+    # Assert
+    assert [log["log_level"] for log in logs] == ["warning"]
+
+
+@pytest.mark.asyncio
+async def test_check_llm_backend_when_recovering_after_failure_should_log_info():
+    # Arrange
+    mock_settings = MagicMock(llm_openai_base_url="http://localhost:11434/v1")
+
+    with patch(LLM_SETTINGS, return_value=mock_settings), capture_logs() as logs:
+        with patch(LLM_CLIENT, return_value=_llm_client(fail=True)):
+            await check_llm_backend(timeout=5.0)
+
+        with patch(LLM_CLIENT, return_value=_llm_client(fail=False)):
+            # Act
+            await check_llm_backend(timeout=5.0)
+            await check_llm_backend(timeout=5.0)
+
+    # Assert
+    assert logs[1:] == [{"event": "health check recovered", "log_level": "info", "check": "llm"}]
+
+
+@pytest.mark.asyncio
+async def test_check_llm_backend_when_healthy_without_prior_failure_should_not_log():
+    # Arrange
+    mock_settings = MagicMock(llm_openai_base_url="http://localhost:11434/v1")
+
+    with (
+        patch(LLM_SETTINGS, return_value=mock_settings),
+        patch(LLM_CLIENT, return_value=_llm_client(fail=False)),
+        capture_logs() as logs,
+    ):
+        # Act
+        await check_llm_backend(timeout=5.0)
+
+    # Assert
+    assert logs == []
+
+
 def _swarmui_client(backend_status: str = "running") -> MagicMock:
     client = MagicMock()
     client.new_session = AsyncMock(return_value="session-1")
@@ -158,6 +259,53 @@ async def test_check_swarmui_when_unreachable_should_return_degraded_not_unhealt
     # Assert
     assert result.status == CheckStatus.DEGRADED
     assert "unreachable" in result.description
+
+
+@pytest.mark.asyncio
+async def test_check_swarmui_when_unreachable_should_warn_without_traceback():
+    # Arrange
+    mock_settings = MagicMock(swarmui_base_url="http://swarm:7801")
+    client = _swarmui_client()
+    client.new_session.side_effect = SwarmUIUnavailableError("down")
+
+    with (
+        patch(SWARMUI_SETTINGS, return_value=mock_settings),
+        patch(SWARMUI_CLIENT, return_value=client),
+        capture_logs() as logs,
+    ):
+        # Act
+        await check_swarmui(timeout=5.0)
+        await check_swarmui(timeout=5.0)
+
+    # Assert
+    assert logs == [
+        {
+            "event": "health check failed",
+            "log_level": "warning",
+            "check": "swarmui",
+            "error_type": "SwarmUIUnavailableError",
+            "error": "down",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_check_swarmui_when_recovering_after_failure_should_log_info():
+    # Arrange
+    mock_settings = MagicMock(swarmui_base_url="http://swarm:7801")
+    client = _swarmui_client()
+    client.new_session.side_effect = SwarmUIUnavailableError("down")
+
+    with patch(SWARMUI_SETTINGS, return_value=mock_settings), patch(SWARMUI_CLIENT, return_value=client):
+        with capture_logs() as logs:
+            await check_swarmui(timeout=5.0)
+            client.new_session.side_effect = None
+
+            # Act
+            await check_swarmui(timeout=5.0)
+
+    # Assert
+    assert logs[1:] == [{"event": "health check recovered", "log_level": "info", "check": "swarmui"}]
 
 
 @pytest.mark.asyncio
