@@ -22,13 +22,15 @@ app = FastAPI(
     description="OpenAI-compatible LLM, embeddings, and image generation proxies, plus Plutus financial forecasting.",
 )
 
+# Added last, so CORS wraps request logging and its JSON 500s get CORS headers too.
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
-app.add_middleware(RequestLoggingMiddleware)
 register_openai_error_handler(app)
 register_swarmui_error_handler(app)
 
