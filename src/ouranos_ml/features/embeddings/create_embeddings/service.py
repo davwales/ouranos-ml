@@ -1,4 +1,5 @@
 import structlog
+from openai.types.embedding_create_params import EmbeddingCreateParams
 
 from ouranos_ml.features.embeddings.create_embeddings.schemas import (
     CreateEmbeddingsRequest,
@@ -16,13 +17,27 @@ def _input_count(input_value: str | list[str]) -> int:
     return len(input_value) if isinstance(input_value, list) else 1
 
 
+def _to_create_params(request: CreateEmbeddingsRequest) -> EmbeddingCreateParams:
+    """Build the upstream request; unset optional fields are left out rather than sent as ``null``.
+
+    Leaving ``encoding_format`` out lets the SDK fetch base64 and decode it to floats; an explicit
+    format is returned untouched, so ``base64`` passes through as a string.
+    """
+    params = EmbeddingCreateParams(model=request.model, input=request.input)
+    if request.dimensions is not None:
+        params["dimensions"] = request.dimensions
+    if request.encoding_format is not None:
+        params["encoding_format"] = request.encoding_format
+    return params
+
+
 async def handle(request: CreateEmbeddingsRequest) -> CreateEmbeddingsResponse:
     """Creates embeddings for the given input using the LLM service."""
     logger.debug("embeddings requested", model=request.model, input_count=_input_count(request.input))
 
     try:
         client = get_openai_client()
-        response = await client.embeddings.create(model=request.model, input=request.input)
+        response = await client.embeddings.create(**_to_create_params(request))
     except Exception:
         logger.error("embeddings upstream failed", model=request.model, exc_info=True)
         raise

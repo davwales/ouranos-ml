@@ -1,4 +1,7 @@
+from typing import Literal
+
 from ouranos_ml.shared.domain.core.base_schema import BaseSchema
+from pydantic import Field
 
 
 class CreateEmbeddingsRequest(BaseSchema):
@@ -6,13 +9,15 @@ class CreateEmbeddingsRequest(BaseSchema):
 
     input: str | list[str]
     model: str
+    dimensions: int | None = Field(default=None, ge=1)
+    encoding_format: Literal["float", "base64"] | None = None
 
 
 class Embedding(BaseSchema):
     """Response containing the embeddings."""
 
     object: str = "embedding"
-    embedding: list[int | float]
+    embedding: list[float] | str  # str when the client asked for encoding_format="base64"
     index: int
 
 
