@@ -31,6 +31,8 @@ uv run start
 uv run ouranos_ml
 ```
 
+For local development, `uv run dev` serves on `127.0.0.1` and reloads when files under `src/` change.
+
 4. Run using docker.
 
 ```bash

@@ -1,4 +1,5 @@
 import importlib.metadata
+from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
@@ -15,6 +16,9 @@ from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.infra.openai.errors import register_openai_error_handler
 from ouranos_ml.shared.infra.swarmui.errors import register_swarmui_error_handler
 from ouranos_ml.shared.logging import RequestLoggingMiddleware, configure_logging
+
+# Configured at import so every entry point (main, dev, a bare `uvicorn ouranos_ml.main:app`, reload workers) logs alike.
+configure_logging(get_settings())
 
 app = FastAPI(
     title="Ouranos ML",
@@ -46,8 +50,20 @@ app.include_router(responses_router)
 def main() -> None:
     """Main entry point for the Ouranos ML API."""
     settings = get_settings()
-    configure_logging(settings)
     uvicorn.run(app, host="0.0.0.0", port=settings.port, log_config=None, access_log=False)
+
+
+def dev() -> None:
+    """Development entry point: loopback-only server that reloads on source changes."""
+    uvicorn.run(
+        "ouranos_ml.main:app",
+        host="127.0.0.1",
+        port=get_settings().port,
+        reload=True,
+        reload_dirs=[str(Path(__file__).resolve().parent.parent)],
+        log_config=None,
+        access_log=False,
+    )
 
 
 if __name__ == "__main__":
