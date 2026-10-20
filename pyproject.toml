@@ -8,7 +8,6 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.141,<0.144",
     "httpx~=0.28.1",
-    "matplotlib~=3.11.0",
     "numpy~=2.5.0",
     "openai~=2.37.0",
     "opentelemetry-distro~=0.65b0",
@@ -17,9 +16,7 @@ dependencies = [
     "opentelemetry-instrumentation-genai-openai~=1.1b0",
     "opentelemetry-instrumentation-httpx~=0.65b0",
     "opentelemetry-instrumentation-system-metrics~=0.65b0",
-    "pandas~=2.3.0",
     "pydantic-settings>=2.15,<2.17",
-    "scikit-learn~=1.9.0",
     "structlog~=26.1.0",
     "torch~=2.14.0",
     "uvicorn>=0.52,<0.55",
@@ -29,6 +26,7 @@ dependencies = [
 
 [dependency-groups]
 dev = ["commitizen>=4.13.10"]
+experiments = ["matplotlib~=3.11.0", "pandas~=2.3.0", "scikit-learn~=1.9.0"]
 linting = ["ruff>=0.14.13", "ty>=0.0.12"]
 test = [
     "pytest>=8.3.0",

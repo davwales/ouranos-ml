@@ -13,7 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync --group linting
+      # ty checks src/experiments too, so it needs the experiment-only imports to resolve.
+      - run: uv sync --group linting --group experiments
       - run: uv run ruff check .
       - run: uv run ty check .
 
