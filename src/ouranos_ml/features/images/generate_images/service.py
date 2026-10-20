@@ -28,7 +28,6 @@ from ouranos_ml.shared.infra.swarmui.errors import SwarmUIError, SwarmUIModelNot
 
 logger = structlog.get_logger(__name__)
 
-_MODEL_NOT_FOUND = "Model not found."
 _RESERVED_PARAMS = frozenset({"session_id", "images"})
 _background_tasks: set[asyncio.Task[None]] = set()
 
@@ -120,7 +119,7 @@ async def _describe_model(client: SwarmUIClient, session_id: str, model: str) ->
     try:
         response = await client.call("DescribeModel", session_id, modelName=model)
     except SwarmUIError as exc:
-        if exc.message == _MODEL_NOT_FOUND:
+        if "not found" in exc.message.lower():
             raise SwarmUIModelNotFoundError(f"Model '{model}' not found") from exc
         raise
     return response["model"]

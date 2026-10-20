@@ -167,10 +167,11 @@ async def test_handle_when_overrides_given_should_prefer_explicit_then_params_th
 
 
 @pytest.mark.asyncio
-async def test_handle_when_model_not_found_should_raise_model_not_found():
+@pytest.mark.parametrize("message", ["Model not found.", "model NOT FOUND", "Model 'nope' not found!"])
+async def test_handle_when_model_not_found_should_raise_model_not_found(message):
     # Arrange
     client = make_swarmui_client()
-    client.call.side_effect = SwarmUIError("Model not found.")
+    client.call.side_effect = SwarmUIError(message)
     request = make_generate_images_request(model="nope")
 
     # Act & Assert
