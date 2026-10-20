@@ -19,6 +19,26 @@ from ouranos_ml.shared.infra.clients.swarmui_client import get_swarmui_client
 
 logger = structlog.get_logger(__name__)
 
+# Checks whose last run failed. pantheon polls /health continuously, so failures are logged on the transition
+# into the failed state (and recoveries on the way out) rather than on every poll during an outage.
+_failing_checks: set[str] = set()
+
+
+def _log_failure(check: str, exc: Exception) -> None:
+    """Warn, without a traceback, the first time a check fails after being healthy."""
+    if check in _failing_checks:
+        return
+    _failing_checks.add(check)
+    logger.warning("health check failed", check=check, error_type=type(exc).__name__, error=str(exc))
+
+
+def _log_recovery(check: str) -> None:
+    """Log when a previously failing check succeeds again."""
+    if check not in _failing_checks:
+        return
+    _failing_checks.discard(check)
+    logger.info("health check recovered", check=check)
+
 
 class CheckDef(NamedTuple):
     """Definition of a single health check in the registry."""
@@ -39,11 +59,12 @@ async def check_llm_backend(timeout: float) -> HealthCheck:
         async with asyncio.timeout(timeout):
             async for _ in client.models.list():
                 break
+        _log_recovery("llm")
         return HealthCheck(status=CheckStatus.HEALTHY, description="LLM backend is reachable")
     except TimeoutError:
         return HealthCheck(status=CheckStatus.UNHEALTHY, description=f"LLM backend timed out after {timeout}s")
-    except Exception:
-        logger.exception("LLM backend health check failed")
+    except Exception as exc:
+        _log_failure("llm", exc)
         return HealthCheck(status=CheckStatus.UNHEALTHY, description="LLM backend is unreachable")
 
 
@@ -64,10 +85,11 @@ async def check_swarmui(timeout: float) -> HealthCheck:
             response = await client.call("GetCurrentStatus", session_id)
     except TimeoutError:
         return HealthCheck(status=CheckStatus.DEGRADED, description=f"SwarmUI timed out after {timeout}s")
-    except Exception:
-        logger.exception("SwarmUI health check failed")
+    except Exception as exc:
+        _log_failure("swarmui", exc)
         return HealthCheck(status=CheckStatus.DEGRADED, description="SwarmUI is unreachable")
 
+    _log_recovery("swarmui")
     backend_status = response.get("backend_status", {}).get("status", "unknown")
     data = SwarmUICheckData(backend_status=backend_status).model_dump(by_alias=True)
     if backend_status in ("errored", "all_disabled", "empty"):
