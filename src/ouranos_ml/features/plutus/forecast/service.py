@@ -35,6 +35,12 @@ class ForecastGenerator:
 
         self.sequence_length = params.get("sequence_length", _DEFAULT_SEQUENCE_LENGTH)
         self.feature_fields = params.get("feature_fields", _DEFAULT_FEATURE_FIELDS)
+        expected_fields = set(PlutusForecastPoint.model_fields)
+        if len(self.feature_fields) != len(expected_fields) or set(self.feature_fields) != expected_fields:
+            logger.error("invalid forecast feature fields", feature_fields=self.feature_fields)
+            raise ValueError(
+                f"feature_fields must list each of {sorted(expected_fields)} exactly once, got {self.feature_fields}"
+            )
         model = Model(
             input_size=params.get("input_size", len(_DEFAULT_FEATURE_FIELDS)),
             output_size=params.get("output_size", len(_DEFAULT_FEATURE_FIELDS)),
@@ -69,12 +75,7 @@ class ForecastGenerator:
         denormalized_predictions = predictions[:, 0, :] * scales[:, 0, :]
 
         return [
-            PlutusForecastPoint(
-                average_price=pred[0],
-                min_price=pred[1],
-                max_price=pred[2],
-                volume=pred[3],
-            )
+            PlutusForecastPoint(**{field: float(value) for field, value in zip(self.feature_fields, pred, strict=True)})
             for pred in denormalized_predictions
         ]
 
