@@ -90,11 +90,11 @@ class ForecastGenerator:
 
 
 @lru_cache
-def _get_forecast_generator() -> ForecastGenerator:
+def get_forecast_generator() -> ForecastGenerator:
     """Build the forecast generator once per process.
 
-    The trained artifact is loaded on the first forecast request; restart the
-    service to pick up a retrained model.
+    The trained artifact is loaded on the first forecast request or health probe; a failed load is not cached,
+    so the next call retries. Restart the service to pick up a retrained model.
     """
     return ForecastGenerator()
 
@@ -104,7 +104,7 @@ def forecast_points(
 ) -> list[list[PlutusForecastPoint]]:
     """Forecast future points for multiple sequences based on historical data."""
     logger.info("forecast requested", sequence_count=len(sequences), num_predictions=num_predictions)
-    generator = _get_forecast_generator()
+    generator = get_forecast_generator()
     all_predictions: list[list[PlutusForecastPoint]] = [[] for _ in sequences]
     current_sequences = [seq.copy() for seq in sequences]
 

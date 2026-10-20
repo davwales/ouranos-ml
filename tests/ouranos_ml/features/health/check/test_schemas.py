@@ -3,6 +3,7 @@ from ouranos_ml.features.health.check.schemas import (
     GpuCheckData,
     HealthCheck,
     HealthResponse,
+    PlutusCheckData,
     ServiceStatus,
 )
 
@@ -52,6 +53,17 @@ def test_gpu_check_data_when_serialized_should_use_field_names():
 
     # Assert
     assert result == {"device_count": 2}
+
+
+def test_plutus_check_data_when_serialized_should_use_field_names():
+    # Arrange
+    plutus_data = PlutusCheckData(model_name="plutus-forecasting-v1", sequence_length=30)
+
+    # Act
+    result = plutus_data.model_dump(by_alias=True)
+
+    # Assert
+    assert result == {"model_name": "plutus-forecasting-v1", "sequence_length": 30}
 
 
 def test_health_response_when_serialized_should_include_checks_dict():

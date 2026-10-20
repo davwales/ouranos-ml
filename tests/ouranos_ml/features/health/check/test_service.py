@@ -6,7 +6,14 @@ from structlog.testing import capture_logs
 
 from ouranos_ml.features.health.check import service
 from ouranos_ml.features.health.check.schemas import CheckStatus, HealthCheck, ServiceStatus
-from ouranos_ml.features.health.check.service import CheckDef, check_gpu, check_llm_backend, check_swarmui, handle
+from ouranos_ml.features.health.check.service import (
+    CheckDef,
+    check_gpu,
+    check_llm_backend,
+    check_plutus,
+    check_swarmui,
+    handle,
+)
 from ouranos_ml.shared.infra.swarmui.errors import SwarmUIUnavailableError
 
 SWARMUI_SETTINGS = "ouranos_ml.features.health.check.service.get_settings"
@@ -32,6 +39,9 @@ def _llm_client(*, fail: bool) -> MagicMock:
     else:
         client.models.list.return_value = _model_generator()
     return client
+
+
+FORECAST_GENERATOR = "ouranos_ml.features.health.check.service.get_forecast_generator"
 
 
 @pytest.mark.asyncio
@@ -366,6 +376,62 @@ def test_check_gpu_when_torch_not_installed_should_return_not_configured(monkeyp
     # Assert
     assert result.status == CheckStatus.NOT_CONFIGURED
     assert "PyTorch" in result.description
+
+
+def test_check_plutus_when_model_loads_should_return_healthy_with_model_data():
+    # Arrange
+    generator = MagicMock(sequence_length=30)
+
+    with patch(FORECAST_GENERATOR, return_value=generator):
+        # Act
+        result = check_plutus()
+
+    # Assert
+    assert result.status == CheckStatus.HEALTHY
+    assert result.data == {"model_name": "plutus-forecasting-v1", "sequence_length": 30}
+
+
+def test_check_plutus_when_artifacts_missing_should_return_not_configured():
+    # Arrange
+    missing = FileNotFoundError("models/plutus-forecasting-v1/params.json")
+
+    with patch(FORECAST_GENERATOR, side_effect=missing):
+        # Act
+        result = check_plutus()
+
+    # Assert
+    assert result.status == CheckStatus.NOT_CONFIGURED
+    assert "not found" in result.description
+
+
+def test_check_plutus_when_load_fails_should_return_degraded_not_unhealthy():
+    # Arrange
+    with patch(FORECAST_GENERATOR, side_effect=KeyError("hidden_size")):
+        # Act
+        result = check_plutus()
+
+    # Assert
+    assert result.status == CheckStatus.DEGRADED
+    assert "failed to load" in result.description
+
+
+def test_check_plutus_when_load_fails_twice_should_warn_once_without_traceback():
+    # Arrange
+    with patch(FORECAST_GENERATOR, side_effect=KeyError("hidden_size")), capture_logs() as logs:
+        # Act
+        check_plutus()
+        check_plutus()
+
+    # Assert
+    assert logs == [
+        {
+            "event": "health check failed",
+            "log_level": "warning",
+            "check": "plutus",
+            "error_type": "KeyError",
+            "error": "'hidden_size'",
+        }
+    ]
 
 
 @pytest.mark.asyncio

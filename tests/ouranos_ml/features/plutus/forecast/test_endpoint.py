@@ -144,7 +144,7 @@ async def test_forecast_endpoint_when_sequence_wrong_length_should_return_422_pe
 
     # Act
     with patch(
-        "ouranos_ml.features.plutus.forecast.service._get_forecast_generator",
+        "ouranos_ml.features.plutus.forecast.service.get_forecast_generator",
         return_value=_generator_expecting_30_points(),
     ):
         response = await async_client.post("/plutus/forecast", json=payload)

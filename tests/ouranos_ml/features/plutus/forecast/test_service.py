@@ -8,8 +8,8 @@ import pytest
 from ouranos_ml.features.plutus.forecast.service import (
     ForecastGenerator,
     SequenceLengthError,
-    _get_forecast_generator,
     forecast_points,
+    get_forecast_generator,
 )
 from ouranos_ml.shared.domain.plutus.forecast_point import PlutusForecastPoint
 from tests.ouranos_ml.shared.factories.forecast_factories import make_forecast_point, make_sequence
@@ -113,7 +113,7 @@ def test_forecast_points_when_valid_sequences_should_return_predictions():
     mock_generator.predict_next.return_value = [make_forecast_point(average_price=42.0)]
 
     # Act
-    with patch("ouranos_ml.features.plutus.forecast.service._get_forecast_generator", return_value=mock_generator):
+    with patch("ouranos_ml.features.plutus.forecast.service.get_forecast_generator", return_value=mock_generator):
         points = make_sequence(30)
         result = forecast_points([points], 3)
 
@@ -168,7 +168,7 @@ def test_forecast_points_when_sequence_not_30_points_should_raise_sequence_lengt
     mock_generator.predict_next.side_effect = SequenceLengthError([0], 30)
 
     # Act & Assert
-    with patch("ouranos_ml.features.plutus.forecast.service._get_forecast_generator", return_value=mock_generator):
+    with patch("ouranos_ml.features.plutus.forecast.service.get_forecast_generator", return_value=mock_generator):
         points = make_sequence(20)
         with pytest.raises(SequenceLengthError, match="30 points"):
             forecast_points([points], 3)
@@ -183,7 +183,7 @@ def test_forecast_points_when_multiple_sequences_should_return_per_sequence_pred
     ]
 
     # Act
-    with patch("ouranos_ml.features.plutus.forecast.service._get_forecast_generator", return_value=mock_generator):
+    with patch("ouranos_ml.features.plutus.forecast.service.get_forecast_generator", return_value=mock_generator):
         seq1 = make_sequence(30)
         seq2 = make_sequence(30)
         result = forecast_points([seq1, seq2], 2)
@@ -201,7 +201,7 @@ def test_forecast_points_when_num_predictions_zero_should_return_empty_lists():
     mock_generator = MagicMock(spec=ForecastGenerator)
 
     # Act
-    with patch("ouranos_ml.features.plutus.forecast.service._get_forecast_generator", return_value=mock_generator):
+    with patch("ouranos_ml.features.plutus.forecast.service.get_forecast_generator", return_value=mock_generator):
         points = make_sequence(30)
         result = forecast_points([points], 0)
 
@@ -223,7 +223,7 @@ def test_forecast_points_when_sliding_window_should_maintain_30_point_sequences(
     mock_generator.predict_next.side_effect = track_sequence_lengths
 
     # Act
-    with patch("ouranos_ml.features.plutus.forecast.service._get_forecast_generator", return_value=mock_generator):
+    with patch("ouranos_ml.features.plutus.forecast.service.get_forecast_generator", return_value=mock_generator):
         points = make_sequence(30)
         forecast_points([points], 3)
 
@@ -231,15 +231,15 @@ def test_forecast_points_when_sliding_window_should_maintain_30_point_sequences(
     assert all(length == 30 for length in sequence_lengths)
 
 
-def test_get_forecast_generator_when_called_twice_should_return_same_instance():
+def testget_forecast_generator_when_called_twice_should_return_same_instance():
     # Arrange
-    _get_forecast_generator.cache_clear()
+    get_forecast_generator.cache_clear()
 
     # Act
-    first = _get_forecast_generator()
-    second = _get_forecast_generator()
+    first = get_forecast_generator()
+    second = get_forecast_generator()
 
     # Assert
     assert first is second
 
-    _get_forecast_generator.cache_clear()
+    get_forecast_generator.cache_clear()
