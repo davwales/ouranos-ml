@@ -57,6 +57,16 @@ def make_function_call_item(*, item_id: str = "fc_001", arguments: str = '{"city
     }
 
 
+def make_web_search_call_item(*, item_id: str = "ws_001") -> dict:
+    """Create a wire-format web search call output item (a hosted tool item we do not model)."""
+    return {
+        "type": "web_search_call",
+        "id": item_id,
+        "status": "completed",
+        "action": {"type": "search", "query": "weather in Paris"},
+    }
+
+
 def make_response_payload(
     *,
     status: str = "completed",

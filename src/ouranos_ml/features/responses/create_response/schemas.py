@@ -1,7 +1,11 @@
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args
+
+import structlog
 
 from ouranos_ml.shared.domain.core.base_schema import BaseSchema
-from pydantic import Discriminator, Field, Tag, TypeAdapter
+from pydantic import Discriminator, Field, Tag, TypeAdapter, field_validator
+
+logger = structlog.get_logger(__name__)
 
 
 class InputText(BaseSchema):
@@ -112,6 +116,12 @@ class OutputMessage(BaseSchema):
 
 
 OutputItem = Annotated[OutputMessage | FunctionCall | Reasoning, Field(discriminator="type")]
+
+_OUTPUT_ITEM_TYPES = frozenset(
+    item_type
+    for member in get_args(get_args(OutputItem)[0])
+    for item_type in get_args(member.model_fields["type"].annotation)
+)
 
 
 class InputTokensDetails(BaseSchema):
@@ -230,6 +240,20 @@ class ResponseObject(BaseSchema):
     temperature: float | None = None
     top_p: float | None = None
     max_output_tokens: int | None = None
+
+    @field_validator("output", mode="before")
+    @classmethod
+    def _drop_unmodeled_items(cls, output: Any) -> Any:  # noqa: ANN401 (the `object` field shadows the builtin here)
+        """Drop output items of types we do not model (e.g. hosted tool calls), so the rest still parse."""
+        if not isinstance(output, list):
+            return output
+        dropped = [
+            item.get("type") for item in output if isinstance(item, dict) and item.get("type") not in _OUTPUT_ITEM_TYPES
+        ]
+        if not dropped:
+            return output
+        logger.warning("unsupported output items dropped", item_types=dropped)
+        return [item for item in output if not isinstance(item, dict) or item.get("type") in _OUTPUT_ITEM_TYPES]
 
 
 class ResponseSnapshotEvent(BaseSchema):

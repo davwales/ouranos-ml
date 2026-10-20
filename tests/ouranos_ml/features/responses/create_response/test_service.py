@@ -27,9 +27,12 @@ from tests.ouranos_ml.shared.factories.responses_factories import (
     make_function_tool,
     make_json_schema_text,
     make_llama_cpp_stream_events,
+    make_output_message,
+    make_response_payload,
     make_sdk_response,
     make_stream_event,
     make_text_stream_events,
+    make_web_search_call_item,
 )
 from tests.ouranos_ml.shared.openai_mocks import make_mock_stream
 
@@ -166,6 +169,22 @@ async def test_handle_when_upstream_responds_should_return_owned_response():
     assert isinstance(response, ResponseObject)
     assert isinstance(response.output[0], FunctionCall)
     assert response.output[0].call_id == "call_001"
+
+
+@pytest.mark.asyncio
+async def test_handle_when_upstream_returns_unmodeled_output_item_should_return_remaining_items():
+    # Arrange
+    output = [make_web_search_call_item(), make_output_message(text="It is sunny.")]
+    client = _mock_client(response=make_sdk_response(output=output))
+
+    # Act
+    with patch(GET_CLIENT, return_value=client):
+        response = await handle(make_create_response_request())
+
+    # Assert
+    assert len(response.output) == 1
+    assert isinstance(response.output[0], OutputMessage)
+    assert response.output[0].content[0].text == "It is sunny."
 
 
 def test_to_extra_body_when_no_text_should_return_none():
@@ -337,6 +356,28 @@ async def test_open_stream_when_event_type_not_modelled_should_skip_it():
     # Assert
     assert len(events) == len(upstream_events) - 1
     assert "response.web_search_call.searching" not in [event.type for event in events]
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_completed_snapshot_has_unmodeled_item_should_still_emit_it():
+    # Arrange
+    upstream_events = make_text_stream_events()
+    output = [make_web_search_call_item(), make_output_message()]
+    upstream_events[-1] = make_stream_event(
+        "response.completed", upstream_events[-1].sequence_number, response=make_response_payload(output=output)
+    )
+    client = _mock_client(events=upstream_events)
+
+    # Act
+    with patch(GET_CLIENT, return_value=client):
+        events = [event async for event in await open_stream(make_create_response_request(stream=True))]
+
+    # Assert
+    completed = events[-1]
+    assert isinstance(completed, ResponseSnapshotEvent)
+    assert completed.type == "response.completed"
+    assert len(completed.response.output) == 1
+    assert isinstance(completed.response.output[0], OutputMessage)
 
 
 @pytest.mark.asyncio
