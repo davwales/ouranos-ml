@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:0.11 AS uv
+FROM ghcr.io/astral-sh/uv:0.13 AS uv
 
 FROM pytorch/pytorch:2.14.1-cuda13.2-cudnn9-runtime
 
