@@ -1481,7 +1481,6 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
-    { name = "matplotlib" },
     { name = "numpy" },
     { name = "openai" },
     { name = "opentelemetry-distro" },
@@ -1490,9 +1489,7 @@ dependencies = [
     { name = "opentelemetry-instrumentation-genai-openai" },
     { name = "opentelemetry-instrumentation-httpx" },
     { name = "opentelemetry-instrumentation-system-metrics" },
-    { name = "pandas" },
     { name = "pydantic-settings" },
-    { name = "scikit-learn" },
     { name = "structlog" },
     { name = "torch", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.14.1+cu132", source = { registry = "https://download.pytorch.org/whl/cu132" }, marker = "sys_platform != 'darwin'" },
@@ -1503,6 +1500,11 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "commitizen" },
+]
+experiments = [
+    { name = "matplotlib" },
+    { name = "pandas" },
+    { name = "scikit-learn" },
 ]
 linting = [
     { name = "ruff" },
@@ -1520,7 +1522,6 @@ test = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.141,<0.144" },
     { name = "httpx", specifier = "~=0.28.1" },
-    { name = "matplotlib", specifier = "~=3.11.0" },
     { name = "numpy", specifier = "~=2.5.0" },
     { name = "openai", specifier = "~=2.37.0" },
     { name = "opentelemetry-distro", specifier = "~=0.65b0" },
@@ -1529,9 +1530,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-genai-openai", specifier = "~=1.1b0" },
     { name = "opentelemetry-instrumentation-httpx", specifier = "~=0.65b0" },
     { name = "opentelemetry-instrumentation-system-metrics", specifier = "~=0.65b0" },
-    { name = "pandas", specifier = "~=2.3.0" },
     { name = "pydantic-settings", specifier = ">=2.15,<2.17" },
-    { name = "scikit-learn", specifier = "~=1.9.0" },
     { name = "structlog", specifier = "~=26.1.0" },
     { name = "torch", marker = "sys_platform != 'darwin'", specifier = "~=2.14.0", index = "https://download.pytorch.org/whl/cu132" },
     { name = "torch", marker = "sys_platform == 'darwin'", specifier = "~=2.14.0" },
@@ -1541,6 +1540,11 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "commitizen", specifier = ">=4.13.10" }]
+experiments = [
+    { name = "matplotlib", specifier = "~=3.11.0" },
+    { name = "pandas", specifier = "~=2.3.0" },
+    { name = "scikit-learn", specifier = "~=1.9.0" },
+]
 linting = [
     { name = "ruff", specifier = ">=0.14.13" },
     { name = "ty", specifier = ">=0.0.12" },

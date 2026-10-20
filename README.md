@@ -50,11 +50,13 @@ docker compose up -d
 
 1. Create your experiment within the `src/experiments` directory.
 2. Add your experiment to the list of experiments in `src/experiments/main.py`.
-3. Execute your experiment.
+3. Execute your experiment. Experiment-only dependencies (pandas, matplotlib, scikit-learn) live in the `experiments` dependency group, which `uv sync` and the Docker image leave out.
 
 ```bash
-uv run experiment {your_experiment_name}
+uv run --group experiments experiment {your_experiment_name}
 ```
+
+Alternatively, install every group once with `uv sync --all-groups` and run `uv run experiment {your_experiment_name}`.
 
 ## Contributing
 
