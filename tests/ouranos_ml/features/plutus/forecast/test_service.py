@@ -6,6 +6,7 @@ import pytest
 
 from ouranos_ml.features.plutus.forecast.service import (
     ForecastGenerator,
+    SequenceLengthError,
     _get_forecast_generator,
     forecast_points,
 )
@@ -76,7 +77,7 @@ def test_forecast_points_when_valid_sequences_should_return_predictions():
     assert result[0][0].average_price == 42.0
 
 
-def test_predict_next_when_sequence_not_30_points_should_raise_value_error():
+def test_predict_next_when_sequence_not_30_points_should_raise_sequence_length_error():
     # Arrange
     uniform_point = PlutusForecastPoint(average_price=10.0, min_price=10.0, max_price=10.0, volume=10.0)
     short_sequence = [uniform_point] * 20
@@ -84,21 +85,46 @@ def test_predict_next_when_sequence_not_30_points_should_raise_value_error():
     generator.sequence_length = 30
 
     # Act & Assert
-    with pytest.raises(ValueError, match="30 points"):
+    with pytest.raises(SequenceLengthError, match="30 points"):
         generator.predict_next([short_sequence])
 
 
-def test_forecast_points_when_sequence_not_30_points_should_raise_value_error():
+def test_predict_next_when_some_sequences_invalid_should_report_their_indices():
+    # Arrange
+    generator = ForecastGenerator.__new__(ForecastGenerator)
+    generator.sequence_length = 30
+    sequences = [make_sequence(30), make_sequence(20), make_sequence(30), make_sequence(31)]
+
+    # Act
+    with pytest.raises(SequenceLengthError) as exc_info:
+        generator.predict_next(sequences)
+
+    # Assert
+    assert exc_info.value.invalid_indices == [1, 3]
+    assert exc_info.value.expected_length == 30
+
+
+def test_sequence_length_error_when_raised_should_be_value_error():
+    # Arrange
+    error = SequenceLengthError([0], 30)
+
+    # Act
+    is_value_error = isinstance(error, ValueError)
+
+    # Assert
+    assert is_value_error
+    assert str(error) == "All sequences must have 30 points. Invalid sequences at indices: [0]"
+
+
+def test_forecast_points_when_sequence_not_30_points_should_raise_sequence_length_error():
     # Arrange
     mock_generator = MagicMock(spec=ForecastGenerator)
-    mock_generator.predict_next.side_effect = ValueError(
-        "All sequences must have 30 points. Invalid sequences at indices: [0]"
-    )
+    mock_generator.predict_next.side_effect = SequenceLengthError([0], 30)
 
     # Act & Assert
     with patch("ouranos_ml.features.plutus.forecast.service._get_forecast_generator", return_value=mock_generator):
         points = make_sequence(20)
-        with pytest.raises(ValueError, match="30 points"):
+        with pytest.raises(SequenceLengthError, match="30 points"):
             forecast_points([points], 3)
 
 

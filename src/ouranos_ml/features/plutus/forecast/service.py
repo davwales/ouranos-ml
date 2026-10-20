@@ -17,6 +17,17 @@ _DEFAULT_FEATURE_FIELDS = ["average_price", "min_price", "max_price", "volume"]
 _DEFAULT_SEQUENCE_LENGTH = 30
 
 
+class SequenceLengthError(ValueError):
+    """Raised when one or more sequences do not have the model's expected number of points."""
+
+    def __init__(self, invalid_indices: list[int], expected_length: int) -> None:
+        self.invalid_indices = invalid_indices
+        self.expected_length = expected_length
+        super().__init__(
+            f"All sequences must have {expected_length} points. Invalid sequences at indices: {invalid_indices}"
+        )
+
+
 class ForecastGenerator:
     """Generator used to predict future Plutus datapoints using the model trained as part of the 'plutus_forecasting' experiment."""
 
@@ -55,9 +66,7 @@ class ForecastGenerator:
                 invalid_indices=invalid_lengths,
                 expected_length=self.sequence_length,
             )
-            raise ValueError(
-                f"All sequences must have {self.sequence_length} points. Invalid sequences at indices: {invalid_lengths}"
-            )
+            raise SequenceLengthError(invalid_lengths, self.sequence_length)
 
         batch_sequences = np.array(
             [[[getattr(p, field) for field in self.feature_fields] for p in sequence] for sequence in sequences]
