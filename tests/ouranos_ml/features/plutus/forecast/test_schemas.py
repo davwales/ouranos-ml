@@ -1,6 +1,6 @@
 import pytest
 
-from ouranos_ml.features.plutus.forecast.schemas import ForecastRequest
+from ouranos_ml.features.plutus.forecast.schemas import MAX_FORECAST_SEQUENCES, ForecastRequest
 from pydantic import ValidationError
 from tests.ouranos_ml.shared.factories.forecast_factories import (
     make_forecast_point,
@@ -61,3 +61,41 @@ def test_plutus_forecast_point_when_serialized_should_use_field_names():
     assert "average_price" in data
     assert "min_price" in data
     assert "max_price" in data
+
+
+def test_forecast_request_when_points_empty_should_raise_validation_error():
+    # Arrange
+    points = []
+
+    # Act & Assert
+    with pytest.raises(ValidationError, match="too_short"):
+        ForecastRequest(points=points, num_predictions=3)
+
+
+def test_forecast_request_when_sequence_empty_should_raise_validation_error():
+    # Arrange
+    points = [make_sequence(30), []]
+
+    # Act & Assert
+    with pytest.raises(ValidationError, match="too_short"):
+        ForecastRequest(points=points, num_predictions=3)
+
+
+def test_forecast_request_when_points_at_max_should_accept():
+    # Arrange
+    points = [make_sequence(30)] * MAX_FORECAST_SEQUENCES
+
+    # Act
+    request = ForecastRequest(points=points, num_predictions=3)
+
+    # Assert
+    assert len(request.points) == MAX_FORECAST_SEQUENCES
+
+
+def test_forecast_request_when_points_exceed_max_should_raise_validation_error():
+    # Arrange
+    points = [make_sequence(30)] * (MAX_FORECAST_SEQUENCES + 1)
+
+    # Act & Assert
+    with pytest.raises(ValidationError, match="too_long"):
+        ForecastRequest(points=points, num_predictions=3)
