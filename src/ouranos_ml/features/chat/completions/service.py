@@ -36,7 +36,7 @@ def _empty_response(model: str) -> ChatCompletionsResponse:
         created=int(datetime.now(UTC).timestamp()),
         model=model,
         choices=[],
-        usage=Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+        usage=Usage(),
         system_fingerprint=None,
     )
 
@@ -71,7 +71,7 @@ async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
 
     content = [c.choices[0].delta.content for c in chunks if c.choices and c.choices[0].delta.content]
 
-    usage = chunks[-1].usage if chunks[-1].usage else Usage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+    usage = chunks[-1].usage or Usage()
 
     finish_reason = next(
         (c.choices[0].finish_reason for c in reversed(chunks) if c.choices and c.choices[0].finish_reason),
