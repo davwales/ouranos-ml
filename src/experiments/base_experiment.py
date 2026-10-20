@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 
 
 class BaseExperiment(ABC):
@@ -6,6 +6,6 @@ class BaseExperiment(ABC):
 
     NAME: str
 
+    @abstractmethod
     def run(self) -> None:
         """Main entry point for the experiment."""
-        raise ValueError("Experiment must implement the run method.")

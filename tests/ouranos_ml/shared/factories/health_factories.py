@@ -3,16 +3,15 @@
 from datetime import UTC, datetime
 
 from ouranos_ml.features.health.check.schemas import (
-    CheckStatus,
     HealthCheck,
     HealthResponse,
-    ServiceStatus,
+    HealthStatus,
 )
 
 
 def make_health_check(
     *,
-    status: CheckStatus = CheckStatus.HEALTHY,
+    status: HealthStatus = HealthStatus.HEALTHY,
     description: str = "Service is healthy",
     timestamp: datetime | None = None,
     data: dict | None = None,
@@ -28,7 +27,7 @@ def make_health_check(
 
 def make_health_response(
     *,
-    status: ServiceStatus = ServiceStatus.HEALTHY,
+    status: HealthStatus = HealthStatus.HEALTHY,
     checks: dict[str, HealthCheck] | None = None,
 ) -> HealthResponse:
     """Create a HealthResponse with sensible defaults."""
@@ -37,9 +36,9 @@ def make_health_response(
         checks=checks
         if checks is not None
         else {
-            "llm": make_health_check(status=CheckStatus.HEALTHY, description="LLM backend is reachable"),
+            "llm": make_health_check(status=HealthStatus.HEALTHY, description="LLM backend is reachable"),
             "gpu": make_health_check(
-                status=CheckStatus.HEALTHY,
+                status=HealthStatus.HEALTHY,
                 description="GPU is available",
                 data={"device_count": 1},
             ),

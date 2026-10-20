@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Response, status
 
-from ouranos_ml.features.health.check.schemas import HealthResponse, ServiceStatus
+from ouranos_ml.features.health.check.schemas import HealthResponse, HealthStatus
 from ouranos_ml.features.health.check.service import handle
 
 
@@ -11,7 +11,7 @@ async def _health_check(response: Response) -> HealthResponse:
     (e.g. CPU-only, SwarmUI down) and not-configured states stay 200.
     """
     result = await handle()
-    if result.status == ServiceStatus.UNHEALTHY:
+    if result.status == HealthStatus.UNHEALTHY:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return result
 

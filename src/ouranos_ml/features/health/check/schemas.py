@@ -6,17 +6,8 @@ from ouranos_ml.shared.domain.core.base_schema import BaseSchema
 from pydantic import Field
 
 
-class CheckStatus(StrEnum):
-    """Status of an individual health check."""
-
-    HEALTHY = "healthy"
-    DEGRADED = "degraded"
-    UNHEALTHY = "unhealthy"
-    NOT_CONFIGURED = "not_configured"
-
-
-class ServiceStatus(StrEnum):
-    """Overall health status of the service."""
+class HealthStatus(StrEnum):
+    """Status of an individual health check, and of the service as a whole."""
 
     HEALTHY = "healthy"
     DEGRADED = "degraded"
@@ -46,7 +37,7 @@ class PlutusCheckData(BaseSchema):
 class HealthCheck(BaseSchema):
     """Schema for a single health check result."""
 
-    status: CheckStatus
+    status: HealthStatus
     description: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(tz=UTC))
     data: dict[str, Any] | None = None
@@ -55,5 +46,5 @@ class HealthCheck(BaseSchema):
 class HealthResponse(BaseSchema):
     """Schema for the aggregate health check response."""
 
-    status: ServiceStatus
+    status: HealthStatus
     checks: dict[str, HealthCheck]

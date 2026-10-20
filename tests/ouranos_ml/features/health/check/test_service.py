@@ -1,13 +1,13 @@
 import sys
+import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from structlog.testing import capture_logs
 
 from ouranos_ml.features.health.check import service
-from ouranos_ml.features.health.check.schemas import CheckStatus, HealthCheck, ServiceStatus
+from ouranos_ml.features.health.check.schemas import HealthCheck, HealthStatus
 from ouranos_ml.features.health.check.service import (
-    CheckDef,
     check_gpu,
     check_llm_backend,
     check_plutus,
@@ -55,7 +55,7 @@ async def test_check_llm_backend_when_url_empty_should_return_not_configured():
         result = await check_llm_backend(timeout=5.0)
 
     # Assert
-    assert result.status == CheckStatus.NOT_CONFIGURED
+    assert result.status == HealthStatus.NOT_CONFIGURED
     assert "not configured" in result.description
 
 
@@ -79,7 +79,7 @@ async def test_check_llm_backend_when_reachable_should_return_healthy():
         result = await check_llm_backend(timeout=5.0)
 
     # Assert
-    assert result.status == CheckStatus.HEALTHY
+    assert result.status == HealthStatus.HEALTHY
     assert "reachable" in result.description
 
 
@@ -100,7 +100,7 @@ async def test_check_llm_backend_when_timeout_should_return_unhealthy():
         result = await check_llm_backend(timeout=1.0)
 
     # Assert
-    assert result.status == CheckStatus.UNHEALTHY
+    assert result.status == HealthStatus.UNHEALTHY
     assert "timed out" in result.description
 
 
@@ -120,7 +120,7 @@ async def test_check_llm_backend_when_connection_fails_should_return_unhealthy()
         result = await check_llm_backend(timeout=5.0)
 
     # Assert
-    assert result.status == CheckStatus.UNHEALTHY
+    assert result.status == HealthStatus.UNHEALTHY
     assert "unreachable" in result.description
 
 
@@ -219,7 +219,7 @@ async def test_check_swarmui_when_url_empty_should_return_not_configured():
         result = await check_swarmui(timeout=5.0)
 
     # Assert
-    assert result.status == CheckStatus.NOT_CONFIGURED
+    assert result.status == HealthStatus.NOT_CONFIGURED
 
 
 @pytest.mark.asyncio
@@ -233,7 +233,7 @@ async def test_check_swarmui_when_reachable_and_running_should_return_healthy_wi
         result = await check_swarmui(timeout=5.0)
 
     # Assert
-    assert result.status == CheckStatus.HEALTHY
+    assert result.status == HealthStatus.HEALTHY
     assert result.data == {"backend_status": "running"}
     client.call.assert_awaited_once_with("GetCurrentStatus", "session-1")
 
@@ -251,7 +251,7 @@ async def test_check_swarmui_when_backends_errored_should_return_degraded():
         result = await check_swarmui(timeout=5.0)
 
     # Assert
-    assert result.status == CheckStatus.DEGRADED
+    assert result.status == HealthStatus.DEGRADED
     assert "errored" in result.description
 
 
@@ -267,7 +267,7 @@ async def test_check_swarmui_when_unreachable_should_return_degraded_not_unhealt
         result = await check_swarmui(timeout=5.0)
 
     # Assert
-    assert result.status == CheckStatus.DEGRADED
+    assert result.status == HealthStatus.DEGRADED
     assert "unreachable" in result.description
 
 
@@ -332,7 +332,7 @@ async def test_check_swarmui_when_timeout_should_return_degraded():
         result = await check_swarmui(timeout=5.0)
 
     # Assert
-    assert result.status == CheckStatus.DEGRADED
+    assert result.status == HealthStatus.DEGRADED
     assert "timed out" in result.description
 
 
@@ -348,7 +348,7 @@ def test_check_gpu_when_cuda_available_should_return_healthy():
         result = check_gpu()
 
     # Assert
-    assert result.status == CheckStatus.HEALTHY
+    assert result.status == HealthStatus.HEALTHY
     assert "CUDA is available" in result.description
     assert result.data["device_count"] == 2
 
@@ -362,7 +362,7 @@ def test_check_gpu_when_cuda_unavailable_should_return_degraded():
         result = check_gpu()
 
     # Assert
-    assert result.status == CheckStatus.DEGRADED
+    assert result.status == HealthStatus.DEGRADED
     assert "CPU" in result.description
 
 
@@ -374,7 +374,7 @@ def test_check_gpu_when_torch_not_installed_should_return_not_configured(monkeyp
     result = check_gpu()
 
     # Assert
-    assert result.status == CheckStatus.NOT_CONFIGURED
+    assert result.status == HealthStatus.NOT_CONFIGURED
     assert "PyTorch" in result.description
 
 
@@ -387,7 +387,7 @@ def test_check_plutus_when_model_loads_should_return_healthy_with_model_data():
         result = check_plutus()
 
     # Assert
-    assert result.status == CheckStatus.HEALTHY
+    assert result.status == HealthStatus.HEALTHY
     assert result.data == {"model_name": "plutus-forecasting-v1", "sequence_length": 30}
 
 
@@ -400,7 +400,7 @@ def test_check_plutus_when_artifacts_missing_should_return_not_configured():
         result = check_plutus()
 
     # Assert
-    assert result.status == CheckStatus.NOT_CONFIGURED
+    assert result.status == HealthStatus.NOT_CONFIGURED
     assert "not found" in result.description
 
 
@@ -411,7 +411,7 @@ def test_check_plutus_when_load_fails_should_return_degraded_not_unhealthy():
         result = check_plutus()
 
     # Assert
-    assert result.status == CheckStatus.DEGRADED
+    assert result.status == HealthStatus.DEGRADED
     assert "failed to load" in result.description
 
 
@@ -435,107 +435,125 @@ def test_check_plutus_when_load_fails_twice_should_warn_once_without_traceback()
 
 
 @pytest.mark.asyncio
+async def test_in_thread_when_awaited_should_run_sync_check_off_the_event_loop():
+    # Arrange
+    loop_thread = threading.get_ident()
+    ran_on: list[int] = []
+
+    def sync_check():
+        ran_on.append(threading.get_ident())
+        return HealthCheck(status=HealthStatus.HEALTHY, description="ok")
+
+    # Act
+    result = await service._in_thread(sync_check)(5.0)
+
+    # Assert
+    assert result.status == HealthStatus.HEALTHY
+    assert ran_on and ran_on[0] != loop_thread
+
+
+@pytest.mark.asyncio
 async def test_handle_when_all_checks_healthy_should_return_healthy():
     # Arrange
     async def healthy_check(*args, **kwargs):
-        return HealthCheck(status=CheckStatus.HEALTHY, description="ok")
+        return HealthCheck(status=HealthStatus.HEALTHY, description="ok")
 
-    checks = [
-        CheckDef(name="test_a", fn=healthy_check, needs_timeout=False),
-        CheckDef(name="test_b", fn=healthy_check, needs_timeout=False),
-    ]
+    checks = {
+        "test_a": healthy_check,
+        "test_b": healthy_check,
+    }
 
     with patch("ouranos_ml.features.health.check.service._CHECKS", checks):
         # Act
         result = await handle()
 
     # Assert
-    assert result.status == ServiceStatus.HEALTHY
+    assert result.status == HealthStatus.HEALTHY
 
 
 @pytest.mark.asyncio
 async def test_handle_when_one_check_unhealthy_should_return_unhealthy():
     # Arrange
     async def healthy_check(*args, **kwargs):
-        return HealthCheck(status=CheckStatus.HEALTHY, description="ok")
+        return HealthCheck(status=HealthStatus.HEALTHY, description="ok")
 
     async def unhealthy_check(*args, **kwargs):
-        return HealthCheck(status=CheckStatus.UNHEALTHY, description="bad")
+        return HealthCheck(status=HealthStatus.UNHEALTHY, description="bad")
 
-    checks = [
-        CheckDef(name="test_a", fn=healthy_check, needs_timeout=False),
-        CheckDef(name="test_b", fn=unhealthy_check, needs_timeout=False),
-    ]
+    checks = {
+        "test_a": healthy_check,
+        "test_b": unhealthy_check,
+    }
 
     with patch("ouranos_ml.features.health.check.service._CHECKS", checks):
         # Act
         result = await handle()
 
     # Assert
-    assert result.status == ServiceStatus.UNHEALTHY
-    assert result.checks["test_b"].status == CheckStatus.UNHEALTHY
+    assert result.status == HealthStatus.UNHEALTHY
+    assert result.checks["test_b"].status == HealthStatus.UNHEALTHY
 
 
 @pytest.mark.asyncio
 async def test_handle_when_one_check_degraded_none_unhealthy_should_return_degraded():
     # Arrange
     async def healthy_check(*args, **kwargs):
-        return HealthCheck(status=CheckStatus.HEALTHY, description="ok")
+        return HealthCheck(status=HealthStatus.HEALTHY, description="ok")
 
     async def degraded_check(*args, **kwargs):
-        return HealthCheck(status=CheckStatus.DEGRADED, description="degraded")
+        return HealthCheck(status=HealthStatus.DEGRADED, description="degraded")
 
-    checks = [
-        CheckDef(name="test_a", fn=healthy_check, needs_timeout=False),
-        CheckDef(name="test_b", fn=degraded_check, needs_timeout=False),
-    ]
+    checks = {
+        "test_a": healthy_check,
+        "test_b": degraded_check,
+    }
 
     with patch("ouranos_ml.features.health.check.service._CHECKS", checks):
         # Act
         result = await handle()
 
     # Assert
-    assert result.status == ServiceStatus.DEGRADED
+    assert result.status == HealthStatus.DEGRADED
 
 
 @pytest.mark.asyncio
 async def test_handle_when_all_checks_not_configured_should_return_not_configured():
     # Arrange
     async def not_configured_check(*args, **kwargs):
-        return HealthCheck(status=CheckStatus.NOT_CONFIGURED, description="not configured")
+        return HealthCheck(status=HealthStatus.NOT_CONFIGURED, description="not configured")
 
-    checks = [
-        CheckDef(name="test_a", fn=not_configured_check, needs_timeout=False),
-        CheckDef(name="test_b", fn=not_configured_check, needs_timeout=False),
-    ]
+    checks = {
+        "test_a": not_configured_check,
+        "test_b": not_configured_check,
+    }
 
     with patch("ouranos_ml.features.health.check.service._CHECKS", checks):
         # Act
         result = await handle()
 
     # Assert
-    assert result.status == ServiceStatus.NOT_CONFIGURED
+    assert result.status == HealthStatus.NOT_CONFIGURED
 
 
 @pytest.mark.asyncio
 async def test_handle_when_check_raises_exception_should_return_unhealthy():
     # Arrange
     async def healthy_check(*args, **kwargs):
-        return HealthCheck(status=CheckStatus.HEALTHY, description="ok")
+        return HealthCheck(status=HealthStatus.HEALTHY, description="ok")
 
     async def raising_check(*args, **kwargs):
         raise RuntimeError("boom")
 
-    checks = [
-        CheckDef(name="test_a", fn=healthy_check, needs_timeout=False),
-        CheckDef(name="test_b", fn=raising_check, needs_timeout=False),
-    ]
+    checks = {
+        "test_a": healthy_check,
+        "test_b": raising_check,
+    }
 
     with patch("ouranos_ml.features.health.check.service._CHECKS", checks):
         # Act
         result = await handle()
 
     # Assert
-    assert result.status == ServiceStatus.UNHEALTHY
-    assert result.checks["test_b"].status == CheckStatus.UNHEALTHY
+    assert result.status == HealthStatus.UNHEALTHY
+    assert result.checks["test_b"].status == HealthStatus.UNHEALTHY
     assert result.checks["test_b"].description == "boom"

@@ -116,9 +116,9 @@ class Choice(BaseSchema):
 class Usage(BaseSchema):
     """Usage statistics for the chat completion"""
 
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
 
 
 class ChatCompletionsResponse(BaseSchema):

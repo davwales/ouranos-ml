@@ -1,16 +1,15 @@
 from ouranos_ml.features.health.check.schemas import (
-    CheckStatus,
     GpuCheckData,
     HealthCheck,
     HealthResponse,
+    HealthStatus,
     PlutusCheckData,
-    ServiceStatus,
 )
 
 
-def test_check_status_when_healthy_should_serialize_to_healthy_string():
+def test_health_status_when_healthy_should_serialize_to_healthy_string():
     # Arrange
-    status = CheckStatus.HEALTHY
+    status = HealthStatus.HEALTHY
 
     # Act
     value = status.value
@@ -26,7 +25,7 @@ def test_health_check_when_created_should_set_timestamp():
     before = datetime.now(tz=UTC)
 
     # Act
-    check = HealthCheck(status=CheckStatus.HEALTHY, description="ok")
+    check = HealthCheck(status=HealthStatus.HEALTHY, description="ok")
 
     # Assert
     after = datetime.now(tz=UTC)
@@ -35,7 +34,7 @@ def test_health_check_when_created_should_set_timestamp():
 
 def test_health_check_when_data_provided_should_serialize_data():
     # Arrange
-    check = HealthCheck(status=CheckStatus.HEALTHY, description="ok", data={"device_count": 1})
+    check = HealthCheck(status=HealthStatus.HEALTHY, description="ok", data={"device_count": 1})
 
     # Act
     result = check.model_dump(by_alias=True)
@@ -68,8 +67,8 @@ def test_plutus_check_data_when_serialized_should_use_field_names():
 
 def test_health_response_when_serialized_should_include_checks_dict():
     # Arrange
-    check = HealthCheck(status=CheckStatus.HEALTHY, description="LLM backend is reachable")
-    response = HealthResponse(status=ServiceStatus.HEALTHY, checks={"llm": check})
+    check = HealthCheck(status=HealthStatus.HEALTHY, description="LLM backend is reachable")
+    response = HealthResponse(status=HealthStatus.HEALTHY, checks={"llm": check})
 
     # Act
     result = response.model_dump(by_alias=True)

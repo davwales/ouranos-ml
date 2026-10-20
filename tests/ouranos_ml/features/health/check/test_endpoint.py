@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import FastAPI
 
-from ouranos_ml.features.health.check.schemas import CheckStatus, HealthCheck, HealthResponse, ServiceStatus
+from ouranos_ml.features.health.check.schemas import HealthCheck, HealthResponse, HealthStatus
 from ouranos_ml.features.health.router import health_router
 from tests.ouranos_ml.shared.factories.health_factories import make_health_check, make_health_response
 
@@ -20,8 +20,8 @@ def app() -> FastAPI:
 async def test_health_endpoint_when_get_should_return_200(async_client):
     # Arrange
     mock_response = HealthResponse(
-        status=ServiceStatus.HEALTHY,
-        checks={"llm": HealthCheck(status=CheckStatus.HEALTHY, description="ok")},
+        status=HealthStatus.HEALTHY,
+        checks={"llm": HealthCheck(status=HealthStatus.HEALTHY, description="ok")},
     )
     with patch(
         "ouranos_ml.features.health.check.endpoint.handle",
@@ -39,8 +39,8 @@ async def test_health_endpoint_when_get_should_return_200(async_client):
 async def test_health_endpoint_when_get_should_return_health_response_shape(async_client):
     # Arrange
     mock_response = HealthResponse(
-        status=ServiceStatus.HEALTHY,
-        checks={"llm": HealthCheck(status=CheckStatus.HEALTHY, description="ok")},
+        status=HealthStatus.HEALTHY,
+        checks={"llm": HealthCheck(status=HealthStatus.HEALTHY, description="ok")},
     )
     with patch(
         "ouranos_ml.features.health.check.endpoint.handle",
@@ -62,8 +62,8 @@ async def test_health_endpoint_when_get_should_return_health_response_shape(asyn
 async def test_health_endpoint_when_unhealthy_should_return_503_with_health_body(async_client):
     # Arrange
     mock_response = make_health_response(
-        status=ServiceStatus.UNHEALTHY,
-        checks={"llm": make_health_check(status=CheckStatus.UNHEALTHY, description="LLM backend is unreachable")},
+        status=HealthStatus.UNHEALTHY,
+        checks={"llm": make_health_check(status=HealthStatus.UNHEALTHY, description="LLM backend is unreachable")},
     )
     with patch(
         "ouranos_ml.features.health.check.endpoint.handle",
@@ -81,7 +81,7 @@ async def test_health_endpoint_when_unhealthy_should_return_503_with_health_body
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("service_status", [ServiceStatus.DEGRADED, ServiceStatus.NOT_CONFIGURED])
+@pytest.mark.parametrize("service_status", [HealthStatus.DEGRADED, HealthStatus.NOT_CONFIGURED])
 async def test_health_endpoint_when_degraded_or_not_configured_should_return_200(async_client, service_status):
     # Arrange
     mock_response = make_health_response(status=service_status)

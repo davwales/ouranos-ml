@@ -1,17 +1,14 @@
 import asyncio
-import inspect
-from collections.abc import Callable
-from typing import Any, NamedTuple
+from collections.abc import Awaitable, Callable
 
 import structlog
 
 from ouranos_ml.features.health.check.schemas import (
-    CheckStatus,
     GpuCheckData,
     HealthCheck,
     HealthResponse,
+    HealthStatus,
     PlutusCheckData,
-    ServiceStatus,
     SwarmUICheckData,
 )
 from ouranos_ml.features.plutus.forecast.service import get_forecast_generator
@@ -42,19 +39,11 @@ def _log_recovery(check: str) -> None:
     logger.info("health check recovered", check=check)
 
 
-class CheckDef(NamedTuple):
-    """Definition of a single health check in the registry."""
-
-    name: str
-    fn: Callable[..., Any]
-    needs_timeout: bool
-
-
 async def check_llm_backend(timeout: float) -> HealthCheck:
     """Check if the LLM backend is reachable."""
     settings = get_settings()
     if not settings.llm_openai_base_url:
-        return HealthCheck(status=CheckStatus.NOT_CONFIGURED, description="LLM backend is not configured")
+        return HealthCheck(status=HealthStatus.NOT_CONFIGURED, description="LLM backend is not configured")
 
     try:
         client = get_openai_client()
@@ -62,12 +51,12 @@ async def check_llm_backend(timeout: float) -> HealthCheck:
             async for _ in client.models.list():
                 break
         _log_recovery("llm")
-        return HealthCheck(status=CheckStatus.HEALTHY, description="LLM backend is reachable")
+        return HealthCheck(status=HealthStatus.HEALTHY, description="LLM backend is reachable")
     except TimeoutError:
-        return HealthCheck(status=CheckStatus.UNHEALTHY, description=f"LLM backend timed out after {timeout}s")
+        return HealthCheck(status=HealthStatus.UNHEALTHY, description=f"LLM backend timed out after {timeout}s")
     except Exception as exc:
         _log_failure("llm", exc)
-        return HealthCheck(status=CheckStatus.UNHEALTHY, description="LLM backend is unreachable")
+        return HealthCheck(status=HealthStatus.UNHEALTHY, description="LLM backend is unreachable")
 
 
 async def check_swarmui(timeout: float) -> HealthCheck:
@@ -78,7 +67,7 @@ async def check_swarmui(timeout: float) -> HealthCheck:
     """
     settings = get_settings()
     if not settings.swarmui_base_url:
-        return HealthCheck(status=CheckStatus.NOT_CONFIGURED, description="SwarmUI is not configured")
+        return HealthCheck(status=HealthStatus.NOT_CONFIGURED, description="SwarmUI is not configured")
 
     try:
         client = get_swarmui_client()
@@ -86,17 +75,19 @@ async def check_swarmui(timeout: float) -> HealthCheck:
             session_id = await client.new_session()
             response = await client.call("GetCurrentStatus", session_id)
     except TimeoutError:
-        return HealthCheck(status=CheckStatus.DEGRADED, description=f"SwarmUI timed out after {timeout}s")
+        return HealthCheck(status=HealthStatus.DEGRADED, description=f"SwarmUI timed out after {timeout}s")
     except Exception as exc:
         _log_failure("swarmui", exc)
-        return HealthCheck(status=CheckStatus.DEGRADED, description="SwarmUI is unreachable")
+        return HealthCheck(status=HealthStatus.DEGRADED, description="SwarmUI is unreachable")
 
     _log_recovery("swarmui")
     backend_status = response.get("backend_status", {}).get("status", "unknown")
     data = SwarmUICheckData(backend_status=backend_status).model_dump(by_alias=True)
     if backend_status in ("errored", "all_disabled", "empty"):
-        return HealthCheck(status=CheckStatus.DEGRADED, description=f"SwarmUI backends are {backend_status}", data=data)
-    return HealthCheck(status=CheckStatus.HEALTHY, description="SwarmUI is reachable", data=data)
+        return HealthCheck(
+            status=HealthStatus.DEGRADED, description=f"SwarmUI backends are {backend_status}", data=data
+        )
+    return HealthCheck(status=HealthStatus.HEALTHY, description="SwarmUI is reachable", data=data)
 
 
 def check_gpu() -> HealthCheck:
@@ -104,18 +95,18 @@ def check_gpu() -> HealthCheck:
     try:
         import torch
     except ImportError:
-        return HealthCheck(status=CheckStatus.NOT_CONFIGURED, description="PyTorch is not installed")
+        return HealthCheck(status=HealthStatus.NOT_CONFIGURED, description="PyTorch is not installed")
 
     if torch.cuda.is_available():
         device_count = torch.cuda.device_count()
         gpu_data = GpuCheckData(device_count=device_count)
         return HealthCheck(
-            status=CheckStatus.HEALTHY,
+            status=HealthStatus.HEALTHY,
             description=f"CUDA is available ({device_count} device(s))",
             data=gpu_data.model_dump(by_alias=True),
         )
 
-    return HealthCheck(status=CheckStatus.DEGRADED, description="CUDA not available — running on CPU")
+    return HealthCheck(status=HealthStatus.DEGRADED, description="CUDA not available — running on CPU")
 
 
 def check_plutus() -> HealthCheck:
@@ -129,25 +120,37 @@ def check_plutus() -> HealthCheck:
     try:
         generator = get_forecast_generator()
     except FileNotFoundError:
-        return HealthCheck(status=CheckStatus.NOT_CONFIGURED, description="Plutus model artifacts not found")
+        return HealthCheck(status=HealthStatus.NOT_CONFIGURED, description="Plutus model artifacts not found")
     except Exception as exc:
         _log_failure("plutus", exc)
-        return HealthCheck(status=CheckStatus.DEGRADED, description="Plutus model failed to load")
+        return HealthCheck(status=HealthStatus.DEGRADED, description="Plutus model failed to load")
 
     _log_recovery("plutus")
 
     data = PlutusCheckData(model_name=settings.plutus_forecast_model_name, sequence_length=generator.sequence_length)
     return HealthCheck(
-        status=CheckStatus.HEALTHY, description="Plutus model is loaded", data=data.model_dump(by_alias=True)
+        status=HealthStatus.HEALTHY, description="Plutus model is loaded", data=data.model_dump(by_alias=True)
     )
 
 
-_CHECKS: list[CheckDef] = [
-    CheckDef(name="llm", fn=check_llm_backend, needs_timeout=True),
-    CheckDef(name="gpu", fn=check_gpu, needs_timeout=False),
-    CheckDef(name="swarmui", fn=check_swarmui, needs_timeout=True),
-    CheckDef(name="plutus", fn=check_plutus, needs_timeout=False),
-]
+type _Check = Callable[[float], Awaitable[HealthCheck]]
+
+
+def _in_thread(check: Callable[[], HealthCheck]) -> _Check:
+    """Adapt a blocking check to the registry signature; it runs in a worker thread and ignores the timeout."""
+
+    async def run(_timeout: float) -> HealthCheck:
+        return await asyncio.to_thread(check)
+
+    return run
+
+
+_CHECKS: dict[str, _Check] = {
+    "llm": check_llm_backend,
+    "gpu": _in_thread(check_gpu),
+    "swarmui": check_swarmui,
+    "plutus": _in_thread(check_plutus),
+}
 
 
 async def handle() -> HealthResponse:
@@ -155,34 +158,29 @@ async def handle() -> HealthResponse:
     settings = get_settings()
     timeout = settings.health_check_timeout_seconds
 
-    async def _run_check(entry: CheckDef) -> tuple[str, HealthCheck]:
+    async def _run_check(name: str, check: _Check) -> tuple[str, HealthCheck]:
         """Run a single check, catching any unhandled exceptions."""
         try:
-            if entry.needs_timeout:
-                result = await entry.fn(timeout)
-            elif inspect.iscoroutinefunction(entry.fn):
-                result = await entry.fn()
-            else:
-                result = await asyncio.to_thread(entry.fn)
+            result = await check(timeout)
         except Exception as exc:
-            result = HealthCheck(status=CheckStatus.UNHEALTHY, description=str(exc))
-        return entry.name, result
+            result = HealthCheck(status=HealthStatus.UNHEALTHY, description=str(exc))
+        return name, result
 
-    results = await asyncio.gather(*(_run_check(entry) for entry in _CHECKS))
+    results = await asyncio.gather(*(_run_check(name, check) for name, check in _CHECKS.items()))
     checks = dict(results)
 
     for name, check in checks.items():
         logger.debug("health check complete", check=name, status=check.status.value)
 
     if not checks:
-        status = ServiceStatus.HEALTHY
-    elif any(c.status == CheckStatus.UNHEALTHY for c in checks.values()):
-        status = ServiceStatus.UNHEALTHY
-    elif any(c.status == CheckStatus.DEGRADED for c in checks.values()):
-        status = ServiceStatus.DEGRADED
-    elif all(c.status == CheckStatus.NOT_CONFIGURED for c in checks.values()):
-        status = ServiceStatus.NOT_CONFIGURED
+        status = HealthStatus.HEALTHY
+    elif any(c.status == HealthStatus.UNHEALTHY for c in checks.values()):
+        status = HealthStatus.UNHEALTHY
+    elif any(c.status == HealthStatus.DEGRADED for c in checks.values()):
+        status = HealthStatus.DEGRADED
+    elif all(c.status == HealthStatus.NOT_CONFIGURED for c in checks.values()):
+        status = HealthStatus.NOT_CONFIGURED
     else:
-        status = ServiceStatus.HEALTHY
+        status = HealthStatus.HEALTHY
 
     return HealthResponse(status=status, checks=checks)
