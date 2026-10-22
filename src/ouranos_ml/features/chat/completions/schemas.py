@@ -102,6 +102,8 @@ class ChoiceMessage(BaseSchema):
 
     role: ChatCompletionRole
     content: str
+    reasoning_content: str | None = None
+    """The model's reasoning, as llama.cpp sends it for thinking models."""
     refusal: str | None = None
 
 
@@ -137,6 +139,8 @@ class ChunkDelta(BaseSchema):
     """Delta for a chunk."""
 
     content: str | None
+    reasoning_content: str | None = None
+    """A piece of the model's reasoning, as llama.cpp sends it for thinking models."""
 
 
 class ChunkChoice(BaseSchema):

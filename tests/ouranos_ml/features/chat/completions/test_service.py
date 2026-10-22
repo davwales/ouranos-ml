@@ -611,3 +611,59 @@ async def test_open_stream_when_stream_fails_mid_iteration_should_propagate_and_
                 pass
 
     mock_logger.error.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_delta_has_reasoning_content_should_relay_it():
+    # Arrange
+    chunks = [
+        make_chunk(delta_content=None, delta_reasoning_content="Thinking"),
+        make_chunk(delta_content="Answer"),
+    ]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=make_mock_stream(chunks))
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        # Act
+        results = [chunk async for chunk in await open_stream(make_chat_request(stream=True))]
+
+    # Assert
+    assert results[0].choices[0].delta.reasoning_content == "Thinking"
+    assert results[0].choices[0].delta.content is None
+    assert results[1].choices[0].delta.reasoning_content is None
+    assert results[1].choices[0].delta.content == "Answer"
+
+
+@pytest.mark.asyncio
+async def test_handle_when_deltas_have_reasoning_content_should_assemble_it_separately():
+    # Arrange
+    chunks = [
+        make_chunk(delta_content=None, delta_reasoning_content="Let me "),
+        make_chunk(delta_content=None, delta_reasoning_content="think."),
+        make_chunk(delta_content="Done.", finish_reason="stop"),
+        make_usage_only_chunk(),
+    ]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=make_mock_stream(chunks))
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        # Act
+        response = await handle(make_chat_request())
+
+    # Assert
+    assert response.choices[0].message.reasoning_content == "Let me think."
+    assert response.choices[0].message.content == "Done."
+
+
+@pytest.mark.asyncio
+async def test_handle_when_no_reasoning_content_should_leave_it_none():
+    # Arrange
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=make_mock_stream([make_chunk(delta_content="Hi")]))
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        # Act
+        response = await handle(make_chat_request())
+
+    # Assert
+    assert response.choices[0].message.reasoning_content is None

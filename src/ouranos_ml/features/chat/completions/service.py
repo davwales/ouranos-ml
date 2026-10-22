@@ -11,6 +11,7 @@ from openai.types.chat import (
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 )
+from openai.types.chat.chat_completion_chunk import ChoiceDelta
 from openai.types.chat.completion_create_params import CompletionCreateParamsStreaming
 from openai.types.chat.completion_create_params import ResponseFormat as ResponseFormatParam
 from openai.types.shared_params import ResponseFormatJSONObject as ResponseFormatJSONObjectParam
@@ -60,7 +61,9 @@ async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
     if not chunks:
         return _empty_response(query.model)
 
-    content = [c.choices[0].delta.content for c in chunks if c.choices and c.choices[0].delta.content]
+    deltas = [c.choices[0].delta for c in chunks if c.choices]
+    content = "".join(d.content for d in deltas if d.content)
+    reasoning_content = "".join(d.reasoning_content for d in deltas if d.reasoning_content) or None
 
     usage = chunks[-1].usage or Usage()
 
@@ -85,7 +88,9 @@ async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
             Choice(
                 finish_reason=finish_reason,
                 index=0,
-                message=ChoiceMessage(role=ChatCompletionRole.ASSISTANT, content="".join(content)),
+                message=ChoiceMessage(
+                    role=ChatCompletionRole.ASSISTANT, content=content, reasoning_content=reasoning_content
+                ),
             )
         ],
         usage=usage,
@@ -139,9 +144,7 @@ async def _relay_stream(
                     model=chunk.model,
                     system_fingerprint=chunk.system_fingerprint,
                     choices=[
-                        ChunkChoice(
-                            index=c.index, delta=ChunkDelta(content=c.delta.content), finish_reason=c.finish_reason
-                        )
+                        ChunkChoice(index=c.index, delta=_to_delta(c.delta), finish_reason=c.finish_reason)
                         for c in chunk.choices
                     ],
                     usage=_extract_usage(chunk.usage) if include_usage else None,
@@ -149,6 +152,11 @@ async def _relay_stream(
     except Exception:
         logger.error("chat completion stream failed", model=model, exc_info=True)
         raise
+
+
+def _to_delta(delta: ChoiceDelta) -> ChunkDelta:
+    """Convert an upstream delta; ``reasoning_content`` is a llama.cpp extension the SDK keeps as an extra field."""
+    return ChunkDelta(content=delta.content, reasoning_content=getattr(delta, "reasoning_content", None))
 
 
 def _to_create_params(query: ChatCompletionsRequest) -> CompletionCreateParamsStreaming:

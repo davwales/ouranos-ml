@@ -6,3 +6,5 @@ variables:
     value: hf.co/nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF
   - name: EMBEDDING_MODEL
     value: hf.co/Qwen/Qwen3-Embedding-4B-GGUF:Q4_K_M
+  - name: REASONING_MODEL
+    value: hf.co/nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF
