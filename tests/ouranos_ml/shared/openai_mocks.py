@@ -1,8 +1,8 @@
 """Shared mock helpers for OpenAI streaming APIs.
 
-These helpers fake the async context manager + async iterator protocol used by
-``client.chat.completions.stream(...)`` and by the ``AsyncStream`` returned from
-``await client.responses.create(..., stream=True)``, so service- and endpoint-layer
+These helpers fake the async context manager + async iterator protocol of the
+``AsyncStream`` returned from ``await client.chat.completions.create(..., stream=True)``
+and ``await client.responses.create(..., stream=True)``, so service- and endpoint-layer
 tests can drive the streaming code paths without a live LLM backend.
 """
 
@@ -31,9 +31,8 @@ class AsyncIteratorMock[T]:
 def make_mock_stream[T](events: Iterable[T]) -> MagicMock:
     """Build a mock async context manager that yields ``events`` as an async iterable.
 
-    The returned mock satisfies ``async with client.chat.completions.stream(...) as stream:``
-    (or ``async with await client.responses.create(..., stream=True):``) followed by
-    ``async for event in stream:``.
+    The returned mock satisfies ``async with stream:`` followed by ``async for event in stream:``,
+    where ``stream`` is what ``await client.*.create(..., stream=True)`` returns.
     """
     mock_stream = MagicMock()
     mock_stream.__aenter__ = AsyncMock(return_value=mock_stream)

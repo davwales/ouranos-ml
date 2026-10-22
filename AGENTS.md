@@ -132,8 +132,9 @@ Placement rules:
 Behavior that isn't obvious from reading one file.
 
 ### Chat (`/chat/completions`)
-- Uses `client.chat.completions.stream()`. Non-streaming requests stream internally with `include_usage=True`, concatenate `choices[0]` deltas, and take id/model/created/usage/fingerprint from the final chunk. Zero chunks give no choices and zero usage. An empty `messages` list fails with a 422.
-- The stream opens lazily inside `StreamingResponse`, so an upstream error after headers are sent breaks the 200 stream. `/responses` and `/images` open eagerly instead.
+- Uses `client.chat.completions.create(stream=True)` (which the genai instrumentation wraps, so chat gets `gen_ai.*` spans). Non-streaming requests stream internally with `include_usage=True`, concatenate `choices[0]` deltas, and take id/model/created/usage/fingerprint from the final chunk. Zero chunks give no choices and zero usage. An empty `messages` list fails with a 422.
+- `open_stream()` opens the upstream before `StreamingResponse` is returned, like `/responses` and `/images`, so connection failures and upstream 4xx/5xx are HTTP statuses. Only a failure mid-stream breaks the 200.
+- Unset sampling fields (`temperature`, `top_p`, penalties, `stop`, ...) are omitted, so the backend's per-model defaults apply.
 
 ### Responses (`/responses`)
 - A stateless proxy to the backend's native `/v1/responses` (llama.cpp `llama-server` in router mode; Ollama also works). Only the supported subset is modeled: function tools, `text.format` `text`/`json_schema`, `reasoning`, sampling params, and message / `function_call` / `function_call_output` / `reasoning` input items. Anything else fails validation. Unknown top-level fields are ignored.

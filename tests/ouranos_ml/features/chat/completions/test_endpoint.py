@@ -1,10 +1,13 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import openai
 import pytest
 from fastapi import FastAPI
 
 from ouranos_ml.features.chat.router import chat_router
-from tests.ouranos_ml.shared.factories.chat_factories import make_chunk_event
+from ouranos_ml.shared.infra.openai.errors import register_openai_error_handler
+from tests.ouranos_ml.shared.factories.chat_factories import make_chunk
 from tests.ouranos_ml.shared.openai_mocks import make_mock_stream
 
 
@@ -13,13 +16,14 @@ def app() -> FastAPI:
     """FastAPI app mounting only the chat router (isolation from torch-dependent routers)."""
     application = FastAPI()
     application.include_router(chat_router)
+    register_openai_error_handler(application)
     return application
 
 
 @pytest.mark.asyncio
 async def test_completions_endpoint_when_stream_false_should_return_200_json(async_client):
     # Arrange
-    chunk = make_chunk_event(
+    chunk = make_chunk(
         chunk_id="chatcmpl-1",
         model="test-model",
         created=100,
@@ -28,7 +32,7 @@ async def test_completions_endpoint_when_stream_false_should_return_200_json(asy
     )
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
         payload = {
@@ -72,10 +76,10 @@ async def test_completions_endpoint_when_empty_messages_should_return_422(async_
 @pytest.mark.asyncio
 async def test_completions_endpoint_when_stream_true_should_return_sse_content_type(async_client):
     # Arrange
-    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
+    chunk = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
         payload = {
@@ -95,10 +99,10 @@ async def test_completions_endpoint_when_stream_true_should_return_sse_content_t
 @pytest.mark.asyncio
 async def test_completions_endpoint_when_stream_true_should_contain_done_event(async_client):
     # Arrange
-    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
+    chunk = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
         payload = {
@@ -117,10 +121,10 @@ async def test_completions_endpoint_when_stream_true_should_contain_done_event(a
 @pytest.mark.asyncio
 async def test_completions_endpoint_when_stream_true_should_yield_chunk_events(async_client):
     # Arrange
-    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
+    chunk = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
         payload = {
@@ -181,10 +185,10 @@ async def test_completions_endpoint_when_invalid_role_should_return_422(async_cl
 @pytest.mark.asyncio
 async def test_completions_endpoint_when_response_format_json_schema_should_return_200(async_client):
     # Arrange
-    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content='{"answer": "yes"}')
+    chunk = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content='{"answer": "yes"}')
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
         payload = {
@@ -211,10 +215,10 @@ async def test_completions_endpoint_when_response_format_json_schema_should_retu
 @pytest.mark.asyncio
 async def test_completions_endpoint_when_response_format_json_object_should_return_200(async_client):
     # Arrange
-    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content='{"ok": true}')
+    chunk = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content='{"ok": true}')
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
         payload = {
@@ -234,10 +238,10 @@ async def test_completions_endpoint_when_response_format_json_object_should_retu
 @pytest.mark.asyncio
 async def test_completions_endpoint_when_response_format_camel_case_should_return_200(async_client):
     # Arrange
-    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
+    chunk = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
         payload = {
@@ -272,10 +276,10 @@ async def test_completions_endpoint_when_invalid_response_format_type_should_ret
 @pytest.mark.asyncio
 async def test_completions_endpoint_when_stream_true_with_response_format_should_return_sse_and_done(async_client):
     # Arrange
-    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content='{"answer": ')
+    chunk = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content='{"answer": ')
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
         payload = {
@@ -304,3 +308,52 @@ def test_completions_endpoint_openapi_when_generated_should_document_json_and_ss
     # Assert
     assert response["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/ChatCompletionsResponse"}
     assert "text/event-stream" in response["content"]
+
+
+_UPSTREAM_REQUEST = httpx.Request("POST", "http://upstream/v1/chat/completions")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (openai.APIConnectionError(request=_UPSTREAM_REQUEST), 502),
+        (openai.APITimeoutError(request=_UPSTREAM_REQUEST), 504),
+    ],
+)
+async def test_completions_endpoint_when_stream_open_fails_should_return_status_not_broken_stream(
+    async_client, error, expected_status
+):
+    # Arrange
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=error)
+    payload = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}], "stream": True}
+
+    # Act
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        response = await async_client.post("/chat/completions", json=payload)
+
+    # Assert
+    assert response.status_code == expected_status
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["error"]["type"] == "server_error"
+
+
+@pytest.mark.asyncio
+async def test_completions_endpoint_when_stream_upstream_404_should_forward_status_and_error(async_client):
+    # Arrange
+    upstream_body = {"message": "model 'x' not found", "type": "not_found_error", "param": None, "code": None}
+    upstream_response = httpx.Response(404, request=_UPSTREAM_REQUEST)
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=openai.NotFoundError("model 'x' not found", response=upstream_response, body=upstream_body)
+    )
+    payload = {"model": "x", "messages": [{"role": "user", "content": "Hello"}], "stream": True}
+
+    # Act
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        response = await async_client.post("/chat/completions", json=payload)
+
+    # Assert
+    assert response.status_code == 404
+    assert response.json() == {"error": upstream_body}
