@@ -76,14 +76,20 @@ def make_chunk(
     model: str = "test-model",
     created: int = 1700000000,
     delta_content: str | None = "Hello",
+    delta_reasoning_content: str | None = None,
     finish_reason: str | None = None,
     system_fingerprint: str | None = "fp_abc123",
     usage: object | None = None,
 ) -> ChatCompletionChunk:
-    """Create a synthetic ChatCompletionChunk using real openai library types."""
+    """Create a synthetic ChatCompletionChunk using real openai library types.
+
+    ``delta_reasoning_content`` is set as an extra field on the delta, as the SDK parses llama.cpp's
+    ``reasoning_content``; it is left out entirely when ``None``.
+    """
+    extra = {} if delta_reasoning_content is None else {"reasoning_content": delta_reasoning_content}
     choice = OpenAIChunkChoice(
         index=0,
-        delta=ChoiceDelta(content=delta_content),
+        delta=ChoiceDelta(content=delta_content, **extra),
         finish_reason=finish_reason,
     )
 

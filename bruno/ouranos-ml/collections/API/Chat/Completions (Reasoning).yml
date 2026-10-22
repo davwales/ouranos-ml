@@ -1,0 +1,32 @@
+info:
+  name: Completions (Reasoning)
+  type: http
+  seq: 4
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/chat/completions"
+  params:
+    - name: ""
+      value: ""
+      type: query
+  body:
+    type: json
+    data: |-
+      {
+        "model": "{{REASONING_MODEL}}",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Is 391 prime? Answer in one sentence."
+          }
+        ],
+        "stream": false
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

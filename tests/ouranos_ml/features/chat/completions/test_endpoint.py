@@ -357,3 +357,40 @@ async def test_completions_endpoint_when_stream_upstream_404_should_forward_stat
     # Assert
     assert response.status_code == 404
     assert response.json() == {"error": upstream_body}
+
+
+@pytest.mark.asyncio
+async def test_completions_endpoint_when_stream_false_with_reasoning_should_return_reasoning_content(async_client):
+    # Arrange
+    chunks = [make_chunk(delta_content=None, delta_reasoning_content="Hmm."), make_chunk(delta_content="Yes.")]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=make_mock_stream(chunks))
+    payload = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}]}
+
+    # Act
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        response = await async_client.post("/chat/completions", json=payload)
+
+    # Assert
+    message = response.json()["choices"][0]["message"]
+    assert message["reasoning_content"] == "Hmm."
+    assert message["content"] == "Yes."
+
+
+@pytest.mark.asyncio
+async def test_completions_endpoint_when_stream_true_with_reasoning_should_emit_snake_case_reasoning_delta(
+    async_client,
+):
+    # Arrange
+    chunks = [make_chunk(delta_content=None, delta_reasoning_content="Hmm.")]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=make_mock_stream(chunks))
+    payload = {"model": "test-model", "messages": [{"role": "user", "content": "Hello"}], "stream": True}
+
+    # Act
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        response = await async_client.post("/chat/completions", json=payload)
+
+    # Assert
+    assert '"reasoning_content":"Hmm."' in response.text.replace(" ", "")
+    assert "reasoningContent" not in response.text
