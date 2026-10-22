@@ -2,17 +2,12 @@
 
 from unittest.mock import MagicMock
 
-from openai.lib.streaming.chat import ChunkEvent
 from openai.types.chat.chat_completion_chunk import (
     ChatCompletionChunk,
     ChoiceDelta,
 )
 from openai.types.chat.chat_completion_chunk import (
     Choice as OpenAIChunkChoice,
-)
-from openai.types.chat.parsed_chat_completion import (
-    ParsedChatCompletion,
-    ParsedChoice,
 )
 from openai.types.completion_usage import CompletionUsage
 
@@ -60,7 +55,7 @@ def make_chat_request(
     model: str = "test-model",
     messages: list[RequestMessage] | None = None,
     stream: bool = False,
-    temperature: float = 1.0,
+    temperature: float | None = None,
     max_completion_tokens: int | None = None,
     response_format: ResponseFormat | None = None,
 ) -> ChatCompletionsRequest:
@@ -75,29 +70,7 @@ def make_chat_request(
     )
 
 
-def _make_snapshot(
-    *,
-    chunk_id: str = "chatcmpl-001",
-    model: str = "test-model",
-    created: int = 1700000000,
-) -> ParsedChatCompletion:
-    """Create a synthetic ParsedChatCompletion for ChunkEvent.snapshot."""
-    return ParsedChatCompletion(
-        id=chunk_id,
-        choices=[
-            ParsedChoice(
-                finish_reason="stop",
-                index=0,
-                message={"role": "assistant", "content": ""},
-            )
-        ],
-        created=created,
-        model=model,
-        object="chat.completion",
-    )
-
-
-def make_chunk_event(
+def make_chunk(
     *,
     chunk_id: str = "chatcmpl-001",
     model: str = "test-model",
@@ -106,8 +79,8 @@ def make_chunk_event(
     finish_reason: str | None = None,
     system_fingerprint: str | None = "fp_abc123",
     usage: object | None = None,
-) -> ChunkEvent:
-    """Create a synthetic ChunkEvent using real openai library types."""
+) -> ChatCompletionChunk:
+    """Create a synthetic ChatCompletionChunk using real openai library types."""
     choice = OpenAIChunkChoice(
         index=0,
         delta=ChoiceDelta(content=delta_content),
@@ -125,7 +98,7 @@ def make_chunk_event(
         else:
             chunk_usage = usage
 
-    chunk = ChatCompletionChunk(
+    return ChatCompletionChunk(
         id=chunk_id,
         model=model,
         created=created,
@@ -135,11 +108,8 @@ def make_chunk_event(
         object="chat.completion.chunk",
     )
 
-    snapshot = _make_snapshot(chunk_id=chunk_id, model=model, created=created)
-    return ChunkEvent(chunk=chunk, snapshot=snapshot, type="chunk")
 
-
-def make_usage_only_chunk_event(
+def make_usage_only_chunk(
     *,
     chunk_id: str = "chatcmpl-001",
     model: str = "test-model",
@@ -148,13 +118,13 @@ def make_usage_only_chunk_event(
     prompt_tokens: int = 10,
     completion_tokens: int = 5,
     total_tokens: int = 15,
-) -> ChunkEvent:
-    """Create a synthetic usage-only ChunkEvent with no choices.
+) -> ChatCompletionChunk:
+    """Create a synthetic usage-only ChatCompletionChunk with no choices.
 
     Matches the final chunk OpenAI emits when stream_options.include_usage is
     set: it carries token usage but no choices.
     """
-    chunk = ChatCompletionChunk(
+    return ChatCompletionChunk(
         id=chunk_id,
         model=model,
         created=created,
@@ -167,9 +137,6 @@ def make_usage_only_chunk_event(
         ),
         object="chat.completion.chunk",
     )
-
-    snapshot = _make_snapshot(chunk_id=chunk_id, model=model, created=created)
-    return ChunkEvent(chunk=chunk, snapshot=snapshot, type="chunk")
 
 
 def make_chat_response(

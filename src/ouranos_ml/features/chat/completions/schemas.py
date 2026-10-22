@@ -85,15 +85,15 @@ class ChatCompletionsRequest(BaseSchema):
     model: str
     messages: list[RequestMessage] = Field(min_length=1)
 
-    top_p: float = 1.0
-    temperature: float = 1.0
+    top_p: float | None = None
+    temperature: float | None = None
     max_completion_tokens: int | None = None
     stream: bool | None = False
     stream_options: StreamOptions | None = None
     response_format: ResponseFormat | None = None
     stop: str | list[str] | None = None
-    presence_penalty: float | None = 0.0
-    frequency_penalty: float | None = 0.0
+    presence_penalty: float | None = None
+    frequency_penalty: float | None = None
     logit_bias: dict[str, int] | None = None
 
 

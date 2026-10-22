@@ -76,7 +76,10 @@ def test_chat_completions_request_when_optional_fields_omitted_should_use_defaul
     request = ChatCompletionsRequest.model_validate(input_data)
 
     # Assert
-    assert request.temperature == 1.0
+    assert request.temperature is None
+    assert request.top_p is None
+    assert request.presence_penalty is None
+    assert request.frequency_penalty is None
     assert request.stream is False
     assert request.max_completion_tokens is None
 

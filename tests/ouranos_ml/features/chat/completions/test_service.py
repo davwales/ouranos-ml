@@ -1,26 +1,31 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from ouranos_ml.features.chat.completions.schemas import (
     ChatCompletionChunkResponse,
     ChatCompletionRole,
+    ChatCompletionsRequest,
     RequestMessage,
     ResponseFormatJSONObject,
+    ResponseFormatText,
+    StreamOptions,
     Usage,
 )
 from ouranos_ml.features.chat.completions.service import (
     _convert_message,
     _extract_usage,
+    _to_create_params,
+    _to_response_format_param,
     handle,
-    handle_stream,
+    open_stream,
 )
 from tests.ouranos_ml.shared.factories.chat_factories import (
     make_chat_request,
-    make_chunk_event,
+    make_chunk,
     make_json_schema_response_format,
     make_request_message,
-    make_usage_only_chunk_event,
+    make_usage_only_chunk,
 )
 from tests.ouranos_ml.shared.openai_mocks import make_mock_stream
 
@@ -28,8 +33,8 @@ from tests.ouranos_ml.shared.openai_mocks import make_mock_stream
 @pytest.mark.asyncio
 async def test_handle_when_non_empty_messages_should_aggregate_chunks():
     # Arrange
-    chunk1 = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello ")
-    chunk2 = make_chunk_event(
+    chunk1 = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello ")
+    chunk2 = make_chunk(
         chunk_id="chatcmpl-1",
         model="test-model",
         created=100,
@@ -38,7 +43,7 @@ async def test_handle_when_non_empty_messages_should_aggregate_chunks():
     )
     mock_stream = make_mock_stream([chunk1, chunk2])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
 
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
@@ -60,7 +65,7 @@ async def test_handle_when_no_chunks_emitted_should_return_zero_usage():
     # Arrange
     mock_stream = make_mock_stream([])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
 
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
@@ -81,7 +86,7 @@ async def test_handle_when_no_chunks_emitted_should_return_zero_usage():
 @pytest.mark.asyncio
 async def test_handle_when_single_chunk_should_return_that_content():
     # Arrange
-    chunk = make_chunk_event(
+    chunk = make_chunk(
         chunk_id="chatcmpl-1",
         model="test-model",
         created=100,
@@ -90,7 +95,7 @@ async def test_handle_when_single_chunk_should_return_that_content():
     )
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
 
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
@@ -106,13 +111,13 @@ async def test_handle_when_single_chunk_should_return_that_content():
 
 
 @pytest.mark.asyncio
-async def test_handle_stream_when_chunks_present_should_yield_chat_completion_chunk_responses():
+async def test_open_stream_when_chunks_present_should_yield_chat_completion_chunk_responses():
     # Arrange
-    chunk1 = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
-    chunk2 = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content=" world")
+    chunk1 = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
+    chunk2 = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content=" world")
     mock_stream = make_mock_stream([chunk1, chunk2])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
 
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
@@ -122,7 +127,7 @@ async def test_handle_stream_when_chunks_present_should_yield_chat_completion_ch
         )
 
         # Act
-        results = [chunk async for chunk in handle_stream(request)]
+        results = [chunk async for chunk in await open_stream(request)]
 
     # Assert
     assert len(results) == 2
@@ -231,12 +236,12 @@ def test_convert_message_when_invalid_role_should_raise_value_error():
 
 
 @pytest.mark.asyncio
-async def test_handle_stream_when_response_format_set_should_pass_snake_case_dict_to_client():
+async def test_open_stream_when_response_format_set_should_pass_snake_case_dict_to_client():
     # Arrange
-    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="{")
+    chunk = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="{")
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
     response_format = make_json_schema_response_format(name="test_schema")
 
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
@@ -248,11 +253,11 @@ async def test_handle_stream_when_response_format_set_should_pass_snake_case_dic
         )
 
         # Act
-        results = [chunk async for chunk in handle_stream(request)]
+        results = [chunk async for chunk in await open_stream(request)]
 
     # Assert
     assert len(results) == 1
-    kwargs = mock_client.chat.completions.stream.call_args.kwargs
+    kwargs = mock_client.chat.completions.create.call_args.kwargs
     assert kwargs["response_format"] == {
         "type": "json_schema",
         "json_schema": {
@@ -265,12 +270,12 @@ async def test_handle_stream_when_response_format_set_should_pass_snake_case_dic
 
 
 @pytest.mark.asyncio
-async def test_handle_stream_when_response_format_not_set_should_omit_key():
+async def test_open_stream_when_response_format_not_set_should_omit_key():
     # Arrange
-    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
+    chunk = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hello")
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
 
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
@@ -280,21 +285,21 @@ async def test_handle_stream_when_response_format_not_set_should_omit_key():
         )
 
         # Act
-        results = [chunk async for chunk in handle_stream(request)]
+        results = [chunk async for chunk in await open_stream(request)]
 
     # Assert
     assert len(results) == 1
-    kwargs = mock_client.chat.completions.stream.call_args.kwargs
+    kwargs = mock_client.chat.completions.create.call_args.kwargs
     assert "response_format" not in kwargs
 
 
 @pytest.mark.asyncio
-async def test_handle_stream_when_response_format_json_object_should_pass_type_only():
+async def test_open_stream_when_response_format_json_object_should_pass_type_only():
     # Arrange
-    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="{}")
+    chunk = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="{}")
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
     response_format = ResponseFormatJSONObject(type="json_object")
 
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
@@ -306,24 +311,24 @@ async def test_handle_stream_when_response_format_json_object_should_pass_type_o
         )
 
         # Act
-        results = [chunk async for chunk in handle_stream(request)]
+        results = [chunk async for chunk in await open_stream(request)]
 
     # Assert
     assert len(results) == 1
-    kwargs = mock_client.chat.completions.stream.call_args.kwargs
+    kwargs = mock_client.chat.completions.create.call_args.kwargs
     assert kwargs["response_format"] == {"type": "json_object"}
 
 
 @pytest.mark.asyncio
 async def test_handle_when_response_format_set_should_aggregate_json_content():
     # Arrange
-    chunk1 = make_chunk_event(
+    chunk1 = make_chunk(
         chunk_id="chatcmpl-1",
         model="test-model",
         created=100,
         delta_content='{"answer": ',
     )
-    chunk2 = make_chunk_event(
+    chunk2 = make_chunk(
         chunk_id="chatcmpl-1",
         model="test-model",
         created=100,
@@ -332,7 +337,7 @@ async def test_handle_when_response_format_set_should_aggregate_json_content():
     )
     mock_stream = make_mock_stream([chunk1, chunk2])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
 
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
@@ -351,7 +356,7 @@ async def test_handle_when_response_format_set_should_aggregate_json_content():
 @pytest.mark.asyncio
 async def test_handle_when_chunk_finish_reason_length_should_surface_it():
     # Arrange
-    chunk = make_chunk_event(
+    chunk = make_chunk(
         chunk_id="chatcmpl-1",
         model="test-model",
         created=100,
@@ -361,7 +366,7 @@ async def test_handle_when_chunk_finish_reason_length_should_surface_it():
     )
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
 
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
@@ -380,14 +385,14 @@ async def test_handle_when_chunk_finish_reason_length_should_surface_it():
 @pytest.mark.asyncio
 async def test_handle_when_trailing_usage_chunk_should_keep_prior_finish_reason():
     # Arrange
-    content_chunk = make_chunk_event(
+    content_chunk = make_chunk(
         chunk_id="chatcmpl-1",
         model="test-model",
         created=100,
         delta_content='{"answer": "yes"}',
         finish_reason="stop",
     )
-    usage_chunk = make_usage_only_chunk_event(
+    usage_chunk = make_usage_only_chunk(
         chunk_id="chatcmpl-1",
         model="test-model",
         created=100,
@@ -397,7 +402,7 @@ async def test_handle_when_trailing_usage_chunk_should_keep_prior_finish_reason(
     )
     mock_stream = make_mock_stream([content_chunk, usage_chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
 
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
@@ -420,10 +425,10 @@ async def test_handle_when_trailing_usage_chunk_should_keep_prior_finish_reason(
 @pytest.mark.asyncio
 async def test_handle_when_no_chunk_finish_reason_should_default_to_stop():
     # Arrange
-    chunk = make_chunk_event(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hi")
+    chunk = make_chunk(chunk_id="chatcmpl-1", model="test-model", created=100, delta_content="Hi")
     mock_stream = make_mock_stream([chunk])
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.return_value = mock_stream
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
 
     with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
         mock_get_client.return_value = mock_client
@@ -442,7 +447,7 @@ async def test_handle_when_no_chunk_finish_reason_should_default_to_stop():
 async def test_handle_when_client_raises_should_propagate_and_log():
     # Arrange
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.side_effect = RuntimeError("upstream down")
+    mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("upstream down"))
 
     with (
         patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client,
@@ -459,10 +464,10 @@ async def test_handle_when_client_raises_should_propagate_and_log():
 
 
 @pytest.mark.asyncio
-async def test_handle_stream_when_client_raises_should_propagate_and_log():
+async def test_open_stream_when_client_raises_should_propagate_and_log():
     # Arrange
     mock_client = MagicMock()
-    mock_client.chat.completions.stream.side_effect = RuntimeError("upstream down")
+    mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("upstream down"))
 
     with (
         patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client,
@@ -473,7 +478,136 @@ async def test_handle_stream_when_client_raises_should_propagate_and_log():
 
         # Act & Assert
         with pytest.raises(RuntimeError, match="upstream down"):
-            async for _ in handle_stream(request):
+            await open_stream(request)
+
+    mock_logger.error.assert_called_once()
+
+
+def test_to_create_params_when_optional_fields_unset_should_send_only_model_messages_and_stream():
+    # Arrange
+    request = make_chat_request(messages=[make_request_message(content="Hi")])
+
+    # Act
+    params = _to_create_params(request)
+
+    # Assert
+    assert params == {"model": "test-model", "messages": [{"role": "user", "content": "Hi"}], "stream": True}
+
+
+def test_to_create_params_when_optional_fields_set_should_forward_them():
+    # Arrange
+    request = ChatCompletionsRequest(
+        model="test-model",
+        messages=[make_request_message(content="Hi")],
+        temperature=0.2,
+        top_p=0.9,
+        max_completion_tokens=64,
+        stop=["\n"],
+        presence_penalty=0.5,
+        frequency_penalty=0.1,
+        logit_bias={"42": -100},
+        stream_options=StreamOptions(include_usage=True),
+    )
+
+    # Act
+    params = _to_create_params(request)
+
+    # Assert
+    assert params["temperature"] == 0.2
+    assert params["top_p"] == 0.9
+    assert params["max_completion_tokens"] == 64
+    assert params["stop"] == ["\n"]
+    assert params["presence_penalty"] == 0.5
+    assert params["frequency_penalty"] == 0.1
+    assert params["logit_bias"] == {"42": -100}
+    assert params["stream_options"] == {"include_usage": True}
+
+
+def test_to_create_params_when_zero_valued_sampling_fields_set_should_forward_them():
+    # Arrange
+    request = make_chat_request(temperature=0.0)
+
+    # Act
+    params = _to_create_params(request)
+
+    # Assert
+    assert params["temperature"] == 0.0
+
+
+def test_to_response_format_param_when_text_should_return_text_param():
+    # Act
+    result = _to_response_format_param(ResponseFormatText())
+
+    # Assert
+    assert result == {"type": "text"}
+
+
+def test_to_response_format_param_when_json_schema_optional_fields_unset_should_omit_them():
+    # Arrange
+    response_format = make_json_schema_response_format(description=None, strict=None)
+
+    # Act
+    result = _to_response_format_param(response_format)
+
+    # Assert
+    assert result == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "test_schema",
+            "schema": {"type": "object", "properties": {"answer": {"type": "string"}}},
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_handle_when_called_should_request_usage_from_upstream_stream():
+    # Arrange
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=make_mock_stream([make_chunk()]))
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        # Act
+        await handle(make_chat_request())
+
+    # Assert
+    kwargs = mock_client.chat.completions.create.call_args.kwargs
+    assert kwargs["stream"] is True
+    assert kwargs["stream_options"] == {"include_usage": True}
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_client_raises_should_raise_before_iteration():
+    # Arrange
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("upstream down"))
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="upstream down"):
+            await open_stream(make_chat_request(stream=True))
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_stream_fails_mid_iteration_should_propagate_and_log():
+    # Arrange
+    async def failing_chunks():
+        yield make_chunk()
+        raise RuntimeError("connection reset")
+
+    mock_stream = make_mock_stream([])
+    mock_stream.__aiter__ = MagicMock(return_value=failing_chunks())
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_stream)
+
+    with (
+        patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client),
+        patch("ouranos_ml.features.chat.completions.service.logger") as mock_logger,
+    ):
+        chunks = await open_stream(make_chat_request(stream=True))
+
+        # Act & Assert
+        with pytest.raises(RuntimeError, match="connection reset"):
+            async for _ in chunks:
                 pass
 
     mock_logger.error.assert_called_once()

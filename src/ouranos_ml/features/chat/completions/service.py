@@ -1,15 +1,22 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from datetime import UTC, datetime
 from uuid import uuid4
 
 import structlog
-from openai.lib.streaming.chat import ChunkEvent
+from openai import AsyncStream
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
+    ChatCompletionChunk,
     ChatCompletionMessageParam,
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 )
+from openai.types.chat.completion_create_params import CompletionCreateParamsStreaming
+from openai.types.chat.completion_create_params import ResponseFormat as ResponseFormatParam
+from openai.types.shared_params import ResponseFormatJSONObject as ResponseFormatJSONObjectParam
+from openai.types.shared_params import ResponseFormatJSONSchema as ResponseFormatJSONSchemaParam
+from openai.types.shared_params import ResponseFormatText as ResponseFormatTextParam
+from openai.types.shared_params.response_format_json_schema import JSONSchema as JSONSchemaParam
 
 from ouranos_ml.features.chat.completions.schemas import (
     ChatCompletionChunkResponse,
@@ -21,6 +28,10 @@ from ouranos_ml.features.chat.completions.schemas import (
     ChunkChoice,
     ChunkDelta,
     RequestMessage,
+    ResponseFormat,
+    ResponseFormatJSONObject,
+    ResponseFormatJSONSchema,
+    ResponseFormatText,
     StreamOptions,
     Usage,
 )
@@ -41,30 +52,10 @@ def _empty_response(model: str) -> ChatCompletionsResponse:
     )
 
 
-async def handle_stream(
-    query: ChatCompletionsRequest,
-) -> AsyncGenerator[ChatCompletionChunkResponse]:
-    """Streams a chat completion response based on the provided query."""
-    logger.debug(
-        "chat completion requested",
-        model=query.model,
-        message_count=len(query.messages),
-        stream=True,
-    )
-    async for chunk in _respond_stream(query):
-        yield chunk
-
-
 async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
     """Returns a fully constructed chat completion response."""
-    logger.debug(
-        "chat completion requested",
-        model=query.model,
-        message_count=len(query.messages),
-        stream=False,
-    )
     query_with_usage = query.model_copy(update={"stream_options": StreamOptions(include_usage=True)})
-    chunks = [chunk async for chunk in _respond_stream(query_with_usage)]
+    chunks = [chunk async for chunk in await open_stream(query_with_usage)]
 
     if not chunks:
         return _empty_response(query.model)
@@ -113,50 +104,94 @@ def _extract_usage(chunk_usage: object) -> Usage | None:
     )
 
 
-async def _respond_stream(query: ChatCompletionsRequest) -> AsyncGenerator[ChatCompletionChunkResponse]:
-    """Streams a chat completion from the configured OpenAI-compatible LLM backend."""
-    include_usage = query.stream_options.include_usage if query.stream_options else False
-    client = get_openai_client()
+async def open_stream(query: ChatCompletionsRequest) -> AsyncIterator[ChatCompletionChunkResponse]:
+    """Open the upstream stream eagerly, then return an iterator over its converted chunks.
 
-    stream_kwargs: dict = {
-        "model": query.model,
-        "messages": [_convert_message(m) for m in query.messages],
-        "top_p": query.top_p,
-        "temperature": query.temperature,
-        "max_completion_tokens": query.max_completion_tokens,
-        "stop": query.stop,
-        "presence_penalty": query.presence_penalty,
-        "frequency_penalty": query.frequency_penalty,
-        "logit_bias": query.logit_bias,
-    }
-
-    if include_usage:
-        stream_kwargs["stream_options"] = {"include_usage": True}
-
-    if query.response_format is not None:
-        stream_kwargs["response_format"] = query.response_format.model_dump(exclude_none=True, by_alias=True)
-
+    Opening eagerly means connection failures and upstream 4xx/5xx responses raise here, before
+    any SSE bytes are sent, so they surface as real HTTP status codes.
+    """
+    logger.debug(
+        "chat completion requested",
+        model=query.model,
+        message_count=len(query.messages),
+        stream=bool(query.stream),
+    )
     try:
-        async with client.chat.completions.stream(**stream_kwargs) as stream:
-            async for event in stream:
-                if isinstance(event, ChunkEvent):
-                    chunk = event.chunk
-                    yield ChatCompletionChunkResponse(
-                        id=chunk.id,
-                        created=chunk.created,
-                        model=chunk.model,
-                        system_fingerprint=chunk.system_fingerprint,
-                        choices=[
-                            ChunkChoice(
-                                index=c.index, delta=ChunkDelta(content=c.delta.content), finish_reason=c.finish_reason
-                            )
-                            for c in chunk.choices
-                        ],
-                        usage=_extract_usage(chunk.usage) if include_usage else None,
-                    )
+        stream = await get_openai_client().chat.completions.create(**_to_create_params(query))
     except Exception:
         logger.error("chat completion upstream failed", model=query.model, exc_info=True)
         raise
+
+    include_usage = query.stream_options.include_usage if query.stream_options else False
+    return _relay_stream(stream, query.model, include_usage)
+
+
+async def _relay_stream(
+    stream: AsyncStream[ChatCompletionChunk], model: str, include_usage: bool
+) -> AsyncGenerator[ChatCompletionChunkResponse]:
+    """Convert and relay upstream chunks."""
+    try:
+        async with stream:
+            async for chunk in stream:
+                yield ChatCompletionChunkResponse(
+                    id=chunk.id,
+                    created=chunk.created,
+                    model=chunk.model,
+                    system_fingerprint=chunk.system_fingerprint,
+                    choices=[
+                        ChunkChoice(
+                            index=c.index, delta=ChunkDelta(content=c.delta.content), finish_reason=c.finish_reason
+                        )
+                        for c in chunk.choices
+                    ],
+                    usage=_extract_usage(chunk.usage) if include_usage else None,
+                )
+    except Exception:
+        logger.error("chat completion stream failed", model=model, exc_info=True)
+        raise
+
+
+def _to_create_params(query: ChatCompletionsRequest) -> CompletionCreateParamsStreaming:
+    """Build the upstream request; unset optional fields are left out so backend defaults apply."""
+    params = CompletionCreateParamsStreaming(
+        model=query.model, messages=[_convert_message(m) for m in query.messages], stream=True
+    )
+    if query.stream_options is not None and query.stream_options.include_usage:
+        params["stream_options"] = {"include_usage": True}
+    if query.response_format is not None:
+        params["response_format"] = _to_response_format_param(query.response_format)
+    if query.temperature is not None:
+        params["temperature"] = query.temperature
+    if query.top_p is not None:
+        params["top_p"] = query.top_p
+    if query.max_completion_tokens is not None:
+        params["max_completion_tokens"] = query.max_completion_tokens
+    if query.stop is not None:
+        params["stop"] = query.stop
+    if query.presence_penalty is not None:
+        params["presence_penalty"] = query.presence_penalty
+    if query.frequency_penalty is not None:
+        params["frequency_penalty"] = query.frequency_penalty
+    if query.logit_bias is not None:
+        params["logit_bias"] = query.logit_bias
+    return params
+
+
+def _to_response_format_param(response_format: ResponseFormat) -> ResponseFormatParam:
+    match response_format:
+        case ResponseFormatText():
+            return ResponseFormatTextParam(type="text")
+        case ResponseFormatJSONObject():
+            return ResponseFormatJSONObjectParam(type="json_object")
+        case ResponseFormatJSONSchema(json_schema=config):
+            json_schema = JSONSchemaParam(name=config.name)
+            if config.description is not None:
+                json_schema["description"] = config.description
+            if config.json_schema is not None:
+                json_schema["schema"] = config.json_schema
+            if config.strict is not None:
+                json_schema["strict"] = config.strict
+            return ResponseFormatJSONSchemaParam(type="json_schema", json_schema=json_schema)
 
 
 def _convert_message(message: RequestMessage) -> ChatCompletionMessageParam:
