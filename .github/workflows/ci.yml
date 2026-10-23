@@ -6,6 +6,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  IMAGE: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
 
 jobs:
   lint:
@@ -37,6 +38,19 @@ jobs:
           "import ouranos_ml.main; from opentelemetry import trace; from opentelemetry.sdk.trace import TracerProvider;
           assert isinstance(trace.get_tracer_provider(), TracerProvider), trace.get_tracer_provider()"
 
+  # Version bumps are computed from commit messages, so every commit a PR adds must be a conventional commit.
+  commits:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v7
+      - run: >-
+          uv run --only-group dev cz check
+          --rev-range ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}
+
   build:
     runs-on: ubuntu-latest
     needs: [lint, test]
@@ -44,6 +58,22 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - run: uv build
+
+  # Builds the image without pushing it, so a broken Dockerfile or dependency fails the PR instead of main's publish.
+  # The package is public, so the build cache is readable without logging in, including from Dependabot and forks.
+  docker:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          outputs: type=cacheonly
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          provenance: false
 
   publish:
     runs-on: ubuntu-latest
@@ -62,6 +92,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: main
+      # Tag with the commit actually built (the tip of main), not the one that triggered this run.
+      - id: commit
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "short_sha=${sha::7}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -72,7 +107,61 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}:buildcache,mode=max
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:sha-${{ steps.commit.outputs.short_sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache,mode=max
+          provenance: false
+
+  # A release is a merged `cz bump` commit. main only accepts PRs, so CI can't push bump commits; instead it tags the
+  # commit that set the current version once that commit reaches main, and publishes that exact commit as the version.
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - id: tag
+        name: Tag the version
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            echo "$tag already exists, nothing to release"
+            exit 0
+          fi
+          # The bump commit itself, even when it was merged with a merge commit, so it matches a local `cz bump` tag.
+          sha=$(git log -1 --format=%H -G '^version = ' -- pyproject.toml)
+          git tag "$tag" "$sha"
+          git push origin "$tag"
+          git checkout --detach "$sha"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${sha::7}" >> "$GITHUB_OUTPUT"
+      - if: steps.tag.outputs.version
+        uses: docker/setup-buildx-action@v4
+      - if: steps.tag.outputs.version
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: steps.tag.outputs.version
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.tag.outputs.version }}
+            ${{ env.IMAGE }}:sha-${{ steps.tag.outputs.short_sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache
           provenance: false
