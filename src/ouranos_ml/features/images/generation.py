@@ -1,6 +1,9 @@
+"""The SwarmUI generation pipeline shared by the image operations, from model lookup to our progress events."""
+
 import asyncio
 import base64
 import json
+import math
 import time
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
@@ -10,18 +13,21 @@ from typing import Any
 
 import structlog
 
-from ouranos_ml.features.images.generate_images.schemas import (
+from ouranos_ml.features.images.presets import ModelDefaults, model_id, resolve_defaults
+from ouranos_ml.features.images.schemas import (
+    MAX_DIMENSION,
+    MIN_DIMENSION,
     CompletedEvent,
     DoneEvent,
     ErrorEvent,
     GeneratedImage,
-    GenerateImagesRequest,
-    GenerateImagesResponse,
     ImageGenerationEvent,
+    ImageRequest,
+    ImagesResponse,
+    Lora,
     ProgressEvent,
     StatusEvent,
 )
-from ouranos_ml.features.images.presets import ModelDefaults, model_id, resolve_defaults
 from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.infra.clients.swarmui_client import SwarmUIClient, get_swarmui_client
 from ouranos_ml.shared.infra.swarmui.errors import SwarmUIError, SwarmUIModelNotFoundError, SwarmUITimeoutError
@@ -29,7 +35,27 @@ from ouranos_ml.shared.infra.swarmui.errors import SwarmUIError, SwarmUIModelNot
 logger = structlog.get_logger(__name__)
 
 _RESERVED_PARAMS = frozenset({"session_id", "images"})
+_SIZE_MULTIPLE = 16
 _background_tasks: set[asyncio.Task[None]] = set()
+
+
+@dataclass(frozen=True)
+class InitImage:
+    """An image to start from (img2img) and an optional white-means-change mask (inpainting), both base64."""
+
+    image: str
+    width: int
+    height: int
+    mask: str | None = None
+    creativity: float | None = None
+
+
+@dataclass(frozen=True)
+class _ResolvedLora:
+    """A requested LoRA as SwarmUI knows it."""
+
+    name: str
+    weight: float
 
 
 @dataclass
@@ -44,9 +70,9 @@ class _Generation:
     started: float = field(default_factory=time.monotonic)
 
 
-async def handle(request: GenerateImagesRequest) -> GenerateImagesResponse:
+async def handle(request: ImageRequest, init: InitImage | None = None) -> ImagesResponse:
     """Generate the images and return them all at once."""
-    generation = await _open(request)
+    generation = await _open(request, init)
     images: list[GeneratedImage] = []
     created = int(time.time())
 
@@ -57,16 +83,16 @@ async def handle(request: GenerateImagesRequest) -> GenerateImagesResponse:
             elif isinstance(event, DoneEvent):
                 created = event.created
 
-    return GenerateImagesResponse(created=created, model=generation.model, data=images)
+    return ImagesResponse(created=created, model=generation.model, data=images)
 
 
-async def open_stream(request: GenerateImagesRequest) -> AsyncGenerator[ImageGenerationEvent]:
+async def open_stream(request: ImageRequest, init: InitImage | None = None) -> AsyncGenerator[ImageGenerationEvent]:
     """Start the generation eagerly, then return an iterator over its progress events.
 
-    Starting eagerly means an unconfigured or unreachable SwarmUI and unknown models raise here, before any SSE
-    bytes are sent, so they surface as real HTTP status codes. Later failures become a final ``error`` event.
+    Starting eagerly means an unconfigured or unreachable SwarmUI and unknown models or LoRAs raise here, before any
+    SSE bytes are sent, so they surface as real HTTP status codes. Later failures become a final ``error`` event.
     """
-    generation = await _open(request)
+    generation = await _open(request, init)
     return _stream(generation)
 
 
@@ -81,8 +107,8 @@ async def _stream(generation: _Generation) -> AsyncGenerator[ImageGenerationEven
         yield ErrorEvent(sequence_number=translator.next_sequence(), code=exc.error_type, message=exc.message)
 
 
-async def _open(request: GenerateImagesRequest) -> _Generation:
-    """Resolve the model and its defaults, then start the generation in a fresh SwarmUI session."""
+async def _open(request: ImageRequest, init: InitImage | None) -> _Generation:
+    """Resolve the model, its defaults and the LoRAs, then start the generation in a fresh SwarmUI session."""
     model = request.model or get_settings().swarmui_default_model
 
     logger.info(
@@ -91,16 +117,26 @@ async def _open(request: GenerateImagesRequest) -> _Generation:
         n=request.n,
         size=request.size or "auto",
         stream=request.stream,
+        lora_count=len(request.loras),
+        init_image=f"{init.width}x{init.height}" if init else None,
+        mask=bool(init and init.mask),
     )
 
     try:
         client = get_swarmui_client()
         session_id = await client.new_session()
-        description = await _describe_model(client, session_id, model)
-        payload = _build_payload(request, model, resolve_defaults(description))
+        description, *lora_descriptions = await asyncio.gather(
+            _describe(client, session_id, model),
+            *(_describe(client, session_id, lora.name, subtype="LoRA") for lora in request.loras),
+        )
+        loras = [
+            _resolve_lora(lora, found, description)
+            for lora, found in zip(request.loras, lora_descriptions, strict=True)
+        ]
+        payload = _build_payload(request, model, resolve_defaults(description), loras, init)
         messages = await client.open_generation(session_id, payload)
-    except SwarmUIModelNotFoundError:
-        logger.warning("image model not found", model=model)
+    except SwarmUIModelNotFoundError as exc:
+        logger.warning("image model not found", model=model, error=exc.message)
         raise
     except Exception:
         logger.error("image generation upstream failed", model=model, exc_info=True)
@@ -114,24 +150,67 @@ async def _open(request: GenerateImagesRequest) -> _Generation:
     )
 
 
-async def _describe_model(client: SwarmUIClient, session_id: str, model: str) -> dict[str, Any]:
-    """Look up the model, which both validates the name and supplies its defaults."""
+async def _describe(
+    client: SwarmUIClient, session_id: str, name: str, subtype: str = "Stable-Diffusion"
+) -> dict[str, Any]:
+    """Look up a model or LoRA, which both validates the name and supplies its defaults."""
     try:
-        response = await client.call("DescribeModel", session_id, modelName=model)
+        response = await client.call("DescribeModel", session_id, modelName=name, subtype=subtype)
     except SwarmUIError as exc:
         if "not found" in exc.message.lower():
-            raise SwarmUIModelNotFoundError(f"Model '{model}' not found") from exc
+            kind = "LoRA" if subtype == "LoRA" else "Model"
+            raise SwarmUIModelNotFoundError(f"{kind} '{name}' not found") from exc
         raise
     return response["model"]
 
 
-def _build_payload(request: GenerateImagesRequest, model: str, defaults: ModelDefaults) -> dict[str, Any]:
-    """SwarmUI's flat raw input. Precedence: explicit fields, then raw ``params``, then model defaults."""
+def _resolve_lora(lora: Lora, description: dict[str, Any], model: dict[str, Any]) -> _ResolvedLora:
+    """The LoRA's SwarmUI id and weight: the requested weight, else the LoRA's own default, else 1."""
+    lora_class, model_class = description.get("compat_class"), model.get("compat_class")
+    if lora_class and model_class and lora_class != model_class:
+        logger.warning("lora does not match model", lora_compat_class=lora_class, model_compat_class=model_class)
+
+    weight = lora.weight
+    if weight is None:
+        try:
+            weight = float(description.get("lora_default_weight") or 1.0)
+        except (TypeError, ValueError):
+            weight = 1.0
+    return _ResolvedLora(name=model_id(description["name"]), weight=weight)
+
+
+def _fit_init_size(init: InitImage, defaults: ModelDefaults) -> tuple[int, int]:
+    """The init image's aspect ratio at the model's standard pixel count (or the image's own, without one).
+
+    SwarmUI resizes the init image to the requested size, so this keeps it undistorted at a resolution the model
+    handles well. Sides are rounded to multiples of 16 and clamped to the request size limits.
+    """
+    area = defaults.width * defaults.height if defaults.width and defaults.height else init.width * init.height
+    scale = math.sqrt(area / (init.width * init.height))
+
+    def fit(side: int) -> int:
+        return min(MAX_DIMENSION, max(MIN_DIMENSION, round(side * scale / _SIZE_MULTIPLE) * _SIZE_MULTIPLE))
+
+    return fit(init.width), fit(init.height)
+
+
+def _build_payload(
+    request: ImageRequest,
+    model: str,
+    defaults: ModelDefaults,
+    loras: list[_ResolvedLora],
+    init: InitImage | None,
+) -> dict[str, Any]:
+    """SwarmUI's flat raw input. Precedence: explicit fields, then raw ``params``, then model defaults.
+
+    With an init image, the default size follows the image's aspect ratio rather than the model's standard size.
+    """
     payload = {key: value for key, value in (request.params or {}).items() if key not in _RESERVED_PARAMS}
 
+    default_width, default_height = _fit_init_size(init, defaults) if init else (defaults.width, defaults.height)
     model_defaults = {
-        "width": defaults.width,
-        "height": defaults.height,
+        "width": default_width,
+        "height": default_height,
         "steps": defaults.steps,
         "cfgscale": defaults.cfg_scale,
     }
@@ -154,6 +233,11 @@ def _build_payload(request: GenerateImagesRequest, model: str, defaults: ModelDe
         "seed": request.seed,
         "sampler": request.sampler,
         "scheduler": request.scheduler,
+        "loras": [lora.name for lora in loras] or None,
+        "loraweights": [lora.weight for lora in loras] or None,
+        "initimage": init.image if init else None,
+        "initimagecreativity": init.creativity if init else None,
+        "maskimage": init.mask if init else None,
         "donotsave": not request.save,
         "nopreviews": not request.previews,
     }

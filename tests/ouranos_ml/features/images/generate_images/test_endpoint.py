@@ -18,7 +18,7 @@ from tests.ouranos_ml.shared.factories.images_factories import (
     make_swarmui_client,
 )
 
-GET_CLIENT = "ouranos_ml.features.images.generate_images.service.get_swarmui_client"
+GET_CLIENT = "ouranos_ml.features.images.generation.get_swarmui_client"
 
 
 @pytest.fixture
@@ -159,5 +159,5 @@ def test_generate_images_endpoint_openapi_when_generated_should_document_json_an
     response = app.openapi()["paths"][path]["post"]["responses"]["200"]
 
     # Assert
-    assert response["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/GenerateImagesResponse"}
+    assert response["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/ImagesResponse"}
     assert "text/event-stream" in response["content"]
