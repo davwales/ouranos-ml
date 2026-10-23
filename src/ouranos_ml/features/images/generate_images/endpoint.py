@@ -4,12 +4,13 @@ from contextlib import aclosing
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from ouranos_ml.features.images.generate_images.schemas import GenerateImagesRequest, GenerateImagesResponse
-from ouranos_ml.features.images.generate_images.service import handle, open_stream
+from ouranos_ml.features.images.generate_images.schemas import GenerateImagesRequest
+from ouranos_ml.features.images.generation import handle, open_stream
+from ouranos_ml.features.images.schemas import ImagesResponse
 from ouranos_ml.shared.utils import server_side_event
 
 
-async def _generate_images(request: GenerateImagesRequest) -> GenerateImagesResponse | StreamingResponse:
+async def _generate_images(request: GenerateImagesRequest) -> ImagesResponse | StreamingResponse:
     """Generates images, streamed as named SSE progress events (no ``[DONE]``) when ``stream`` is true."""
     if request.stream:
         events = await open_stream(request)
@@ -30,7 +31,7 @@ def register(router: APIRouter) -> None:
         response_model=None,
         responses={
             200: {
-                "model": GenerateImagesResponse,
+                "model": ImagesResponse,
                 "description": "Generated images as JSON, or a stream of named SSE progress events (no `[DONE]`) when `stream` is true.",
                 "content": {"text/event-stream": {"schema": {"type": "string"}}},
             }

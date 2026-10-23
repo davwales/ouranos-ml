@@ -43,6 +43,7 @@ async def test_handle_when_models_listed_should_describe_them_with_their_default
     client.call.assert_awaited_once_with("ListModels", "session-1", path="", depth=10)
     klein, mystery = response.data
     assert klein.id == "flux-2-klein-9b"
+    assert klein.compat_class == "flux-2-klein-9b"
     assert (klein.default_size, klein.default_steps, klein.default_cfg_scale) == ("1024x1024", 10, 1.0)
     assert klein.loaded is True
     assert klein.usage_hint == "few steps"

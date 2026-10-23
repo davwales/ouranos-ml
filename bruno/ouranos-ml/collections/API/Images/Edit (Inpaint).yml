@@ -1,0 +1,25 @@
+info:
+  name: Edit (Inpaint)
+  type: http
+  seq: 5
+
+http:
+  method: POST
+  url: "{{BASE_URL}}/images/edits"
+  body:
+    type: json
+    data: |-
+      {
+        "prompt": "a dramatic sunset sky over green hills",
+        "image": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAIAAABqVuVZAAAAdUlEQVR42u3SMQ0AIAwAQSCdEIYwJgShrTMKEAC5l3D5OuYuutcQAAIECBAgQIAACRAgQIAAAQIESIAAAQIECBAgQAIECBAgQIAAAQIkQIAAAQL0WpF9UXAQIECAAAECBEiAAAECBAgQIEACBAgQIECAAP3eAU3xA4Zk8m7cAAAAAElFTkSuQmCC",
+        "mask": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABACAAAAADAXy3SAAAALklEQVR42u3NsQ0AAAQAMPz/M4MbDJL2gWbHrQqBQCAQCAQCgUAgEAjeBAAArAFtXAFPePt7kQAAAABJRU5ErkJggg==",
+        "strength": 1.0,
+        "save": false
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
