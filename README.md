@@ -48,6 +48,8 @@ You can pull the latest image from the repository and run it using the following
 docker compose up -d
 ```
 
+Every merge to `main` publishes `ghcr.io/davwales/ouranos-ml:latest` and `:sha-<short commit sha>`, and each release also publishes `:<version>` (see `CHANGELOG.md`). To roll back, point `compose.yml` at one of those tags.
+
 ### Endpoints
 
 | Method | Path | Description |
