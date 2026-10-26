@@ -36,6 +36,7 @@ def _to_image_model(file: dict[str, Any]) -> ImageModel:
         id=model_id(file["name"]),
         title=file.get("title"),
         architecture=file.get("architecture"),
+        compat_class=file.get("compat_class"),
         default_size=f"{defaults.width}x{defaults.height}" if defaults.width and defaults.height else None,
         default_steps=defaults.steps,
         default_cfg_scale=defaults.cfg_scale,

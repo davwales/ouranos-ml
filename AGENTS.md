@@ -31,14 +31,16 @@ uv run ty check               # Type check (src only; tests are excluded)
 - **`src/experiments/`**: model training. An experiment subclasses `BaseExperiment` (an ABC), sets `NAME`, implements `run()`, and is registered by instantiating it in the list in `src/experiments/main.py`. Training reuses `Model`/`TrainingHarness` from `ouranos_ml.shared.inference`.
 - **`models/`** (repo root): trained artifacts, one versioned directory per model (e.g. `models/plutus-forecasting-v1/` with `model.pth` and `params.json`). Selected by the `MODELS_DIR` and `PLUTUS_FORECAST_MODEL_NAME` settings.
 
-Seven domains, eight operations:
+Seven domains, ten operations:
 
 | Method | Path | Operation directory (`features/…`) |
 |--------|------|------------------------------------|
 | POST | `/chat/completions` | `chat/completions` |
 | POST | `/embeddings` | `embeddings/create_embeddings` |
 | GET | `/health` | `health/check` |
+| POST | `/images/edits` | `images/edit_images` |
 | POST | `/images/generations` | `images/generate_images` |
+| GET | `/images/loras` | `images/list_loras` |
 | GET | `/images/models` | `images/list_models` |
 | GET | `/models` | `models/list_models` |
 | POST | `/plutus/forecast` | `plutus/forecast` |
@@ -93,7 +95,7 @@ def register(router: APIRouter) -> None:
 
 Placement rules:
 
-- **Keep code in the feature.** Move something to `shared/` only once a second feature actually reuses it. Don't build speculative shared layers or gateways. A domain-level helper used by several operations of the same domain (e.g. `features/images/presets.py`) is fine. Give modules specific names.
+- **Keep code in the feature.** Move something to `shared/` only once a second feature actually reuses it. Don't build speculative shared layers or gateways. A domain-level helper used by several operations of the same domain (e.g. `features/images/presets.py`, or the shared generation pipeline in `features/images/generation.py`) is fine. Give modules specific names.
 - **Own the wire types.** For OpenAI-compatible features, write our own `BaseSchema` models covering the subset the backend supports, and convert them to the SDK's `*Param` TypedDicts in `service.py` (e.g. chat's `_convert_message`, responses' `_to_create_params`), so `ty` checks the SDK call. Reuse SDK models only if they fit unchanged; no adapters or subclass patches.
 
 ---
@@ -107,7 +109,7 @@ Placement rules:
   |---|---|
   | `/chat/completions` | Unnamed `data:` chunks, ending in `data: [DONE]` |
   | `/responses` | Named events (`event: <type>`) with `sequence_number`, no `[DONE]` |
-  | `/images/generations` | Named events with `sequence_number`, no `[DONE]` |
+  | `/images/generations`, `/images/edits` | Named events with `sequence_number`, no `[DONE]` |
 
 - **OpenAPI.** Endpoints that return JSON *or* SSE register with `response_model=None` and document the 200 through `responses={200: {"model": ..., "content": {"text/event-stream": ...}}}`, with event shapes in prose. JSON-only endpoints use the return annotation.
 - **Errors.** Handlers are registered app-wide in `main.py`. Endpoint tests that exercise upstream failures must register the matching handler on their local `app`.
@@ -149,10 +151,13 @@ Behavior that isn't obvious from reading one file.
 
 ### Images (`/images`)
 - A proxy to SwarmUI (`SWARMUI_BASE_URL`; empty → 503 and health `not_configured`), shaped like OpenAI's Images API. Only `prompt` is required. `params` is a raw SwarmUI escape hatch.
-- Defaults, in order of precedence: explicit field, then `params`, then the model default, then SwarmUI's own default. Size comes from the model's standard dimensions. Steps and CFG come from `features/images/presets.py`, keyed by `compat_class`. The presets assume distilled checkpoints, and base checkpoints share the same class, so their clients must pass `steps`/`cfg_scale` themselves.
+- Generations and edits share one pipeline (`features/images/generation.py`), request base (`ImageRequest`), response (`ImagesResponse`) and stream events (`features/images/schemas.py`). An edit is a generation with an `InitImage`.
+- Defaults, in order of precedence: explicit field, then `params`, then the model default, then SwarmUI's own default. Size comes from the model's standard dimensions; for edits, the image's aspect ratio at the model's standard pixel count (multiples of 16, clamped to the size limits), since SwarmUI stretches the init image to the requested size. Steps and CFG come from `features/images/presets.py`, keyed by `compat_class`. The presets assume distilled checkpoints, and base checkpoints share the same class, so their clients must pass `steps`/`cfg_scale` themselves.
 - Each generation runs in a fresh SwarmUI session, because closing the WebSocket doesn't stop a generation. If a generation doesn't complete, `InterruptAll` fires as an un-awaited background task.
+- **Edits** are JSON, not OpenAI's multipart: `image` and `mask` are base64 or data URLs (PNG/JPEG/WebP, checked with Pillow, so bad images are 422s), and the mask must match the image's size. They map to SwarmUI's `initimage`, `maskimage` and `initimagecreativity` (`strength`, SwarmUI default 0.6). SwarmUI masks are white-means-change; a mask with any transparent pixel is treated as OpenAI-style (transparent means change) and its alpha is inverted. Masks are re-encoded as grayscale PNG before sending.
+- **LoRAs** (`loras: [{name, weight?}]`, both endpoints) are looked up with `DescribeModel` (`subtype=LoRA`) alongside the model, so an unknown LoRA is a 404 before headers. The weight defaults to the LoRA's `lora_default_weight`, else 1. A LoRA whose `compat_class` differs from the model's only logs a warning. `GET /images/loras` lists them, and `/images/models` exposes `compat_class` for matching.
 - Images are always returned inline (`b64_json`). `save=false` sends `donotsave`. `save=true` defers to the SwarmUI user's Save Files setting.
-- Stream events: `image_generation.status` (on stage change), `.progress` (monotonic per-image and total percent, with optional preview), `.completed` (one per image), `.done`, and `error`. Model lookup and the socket open happen before headers, so config, connection and unknown-model failures are still HTTP statuses.
+- Stream events: `image_generation.status` (on stage change), `.progress` (monotonic per-image and total percent, with optional preview), `.completed` (one per image), `.done`, and `error`. Model lookup and the socket open happen before headers, so config, connection and unknown-model or unknown-LoRA failures are still HTTP statuses.
 - SwarmUI reports most errors as HTTP 200 with `{"error": ...}`. Invalid `params` values only fail mid-generation (502 / `error` event).
 
 ### Plutus (`/plutus/forecast`)

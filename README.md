@@ -56,8 +56,10 @@ docker compose up -d
 | POST | `/responses` | OpenAI-compatible Responses API, proxied to the LLM backend |
 | POST | `/embeddings` | OpenAI-compatible embeddings |
 | GET | `/models` | Lists the models available on the LLM backend |
-| POST | `/images/generations` | Generates images through SwarmUI, streamed (SSE) or not |
+| POST | `/images/generations` | Generates images through SwarmUI, streamed (SSE) or not, with optional LoRAs |
+| POST | `/images/edits` | Edits an image (img2img), or only a masked area (inpainting), through SwarmUI |
 | GET | `/images/models` | Lists the SwarmUI image models and their defaults |
+| GET | `/images/loras` | Lists the SwarmUI LoRAs that image requests can apply |
 | POST | `/plutus/forecast` | Forecasts prices from 30-point historical sequences |
 | GET | `/health` | Reports the health of the service and its backends |
 

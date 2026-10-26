@@ -1,22 +1,22 @@
 import pytest
 
-from ouranos_ml.features.images.generate_images.schemas import (
+from ouranos_ml.features.images.schemas import (
     CompletedEvent,
     GeneratedImage,
-    GenerateImagesRequest,
-    GenerateImagesResponse,
+    ImageRequest,
+    ImagesResponse,
     ProgressEvent,
 )
 from pydantic import ValidationError
 from tests.ouranos_ml.shared.factories.images_factories import make_generate_images_request
 
 
-def test_generate_images_request_when_only_prompt_should_apply_defaults():
+def test_image_request_when_only_prompt_should_apply_defaults():
     # Arrange
     payload = {"prompt": "a red fox"}
 
     # Act
-    request = GenerateImagesRequest.model_validate(payload)
+    request = ImageRequest.model_validate(payload)
 
     # Assert
     assert request.model is None
@@ -26,21 +26,43 @@ def test_generate_images_request_when_only_prompt_should_apply_defaults():
     assert request.previews is False
     assert request.stream is False
     assert request.dimensions() is None
+    assert request.loras == []
 
 
-def test_generate_images_request_when_camel_case_should_populate_fields():
+def test_image_request_when_loras_given_should_parse_names_and_optional_weights():
+    # Arrange
+    payload = {"prompt": "a red fox", "loras": [{"name": "styles/ink"}, {"name": "detail", "weight": 0.5}]}
+
+    # Act
+    request = ImageRequest.model_validate(payload)
+
+    # Assert
+    assert [(lora.name, lora.weight) for lora in request.loras] == [("styles/ink", None), ("detail", 0.5)]
+
+
+@pytest.mark.parametrize(
+    "loras",
+    [[{"name": ""}], [{"name": "a", "weight": 11}], [{"name": "a", "weight": -11}], [{"name": "a"}] * 11],
+)
+def test_image_request_when_loras_invalid_should_raise(loras):
+    # Act & Assert
+    with pytest.raises(ValidationError):
+        make_generate_images_request(loras=loras)
+
+
+def test_image_request_when_camel_case_should_populate_fields():
     # Arrange
     payload = {"prompt": "a red fox", "negativePrompt": "blurry", "cfgScale": 3.5}
 
     # Act
-    request = GenerateImagesRequest.model_validate(payload)
+    request = ImageRequest.model_validate(payload)
 
     # Assert
     assert request.negative_prompt == "blurry"
     assert request.cfg_scale == 3.5
 
 
-def test_generate_images_request_when_size_given_should_parse_dimensions():
+def test_image_request_when_size_given_should_parse_dimensions():
     # Arrange
     request = make_generate_images_request(size="768x512")
 
@@ -51,7 +73,7 @@ def test_generate_images_request_when_size_given_should_parse_dimensions():
     assert dimensions == (768, 512)
 
 
-def test_generate_images_request_when_size_auto_should_have_no_dimensions():
+def test_image_request_when_size_auto_should_have_no_dimensions():
     # Arrange
     request = make_generate_images_request(size="auto")
 
@@ -63,22 +85,22 @@ def test_generate_images_request_when_size_auto_should_have_no_dimensions():
 
 
 @pytest.mark.parametrize("size", ["1024", "1024x", "big", "1000x9", "4096x1024", "1020x1024", "128x128"])
-def test_generate_images_request_when_size_invalid_should_raise(size):
+def test_image_request_when_size_invalid_should_raise(size):
     # Act & Assert
     with pytest.raises(ValidationError):
         make_generate_images_request(size=size)
 
 
 @pytest.mark.parametrize("overrides", [{"prompt": ""}, {"n": 0}, {"n": 9}, {"steps": 0}, {"seed": -2}])
-def test_generate_images_request_when_out_of_range_should_raise(overrides):
+def test_image_request_when_out_of_range_should_raise(overrides):
     # Act & Assert
     with pytest.raises(ValidationError):
         make_generate_images_request(**overrides)
 
 
-def test_generate_images_response_when_serialized_should_use_openai_snake_case():
+def test_images_response_when_serialized_should_use_openai_snake_case():
     # Arrange
-    response = GenerateImagesResponse(
+    response = ImagesResponse(
         created=1, model="m", data=[GeneratedImage(b64_json="abc", seed=1, size="1x1", output_format="png")]
     )
 

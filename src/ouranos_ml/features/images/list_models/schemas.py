@@ -7,6 +7,7 @@ class ImageModel(BaseSchema):
     id: str
     title: str | None = None
     architecture: str | None = None
+    compat_class: str | None = None
     default_size: str | None = None
     default_steps: int | None = None
     default_cfg_scale: float | None = None

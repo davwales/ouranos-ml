@@ -5,19 +5,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ouranos_ml.features.images.generate_images import service
-from ouranos_ml.features.images.generate_images.schemas import (
+from ouranos_ml.features.images import generation
+from ouranos_ml.features.images.generation import InitImage, handle, open_stream
+from ouranos_ml.features.images.schemas import (
     CompletedEvent,
     DoneEvent,
     ErrorEvent,
     ProgressEvent,
     StatusEvent,
 )
-from ouranos_ml.features.images.generate_images.service import handle, open_stream
 from ouranos_ml.shared.infra.swarmui.errors import SwarmUIError, SwarmUIModelNotFoundError, SwarmUITimeoutError
 from tests.ouranos_ml.shared.factories.images_factories import (
     PNG_B64,
     make_generate_images_request,
+    make_lora_description,
     make_model_description,
     make_swarm_error,
     make_swarm_image,
@@ -27,8 +28,8 @@ from tests.ouranos_ml.shared.factories.images_factories import (
     make_swarmui_client,
 )
 
-GET_CLIENT = "ouranos_ml.features.images.generate_images.service.get_swarmui_client"
-GET_SETTINGS = "ouranos_ml.features.images.generate_images.service.get_settings"
+GET_CLIENT = "ouranos_ml.features.images.generation.get_swarmui_client"
+GET_SETTINGS = "ouranos_ml.features.images.generation.get_settings"
 
 
 def _settings(*, timeout: float = 600.0) -> MagicMock:
@@ -49,7 +50,7 @@ async def _collect(request, client: MagicMock) -> list:
 
 
 async def _drain_interrupts() -> None:
-    await asyncio.gather(*service._background_tasks)
+    await asyncio.gather(*generation._background_tasks)
 
 
 @pytest.mark.asyncio
@@ -84,7 +85,9 @@ async def test_handle_when_only_prompt_should_use_default_model_and_its_preset()
         await handle(request)
 
     # Assert
-    client.call.assert_awaited_once_with("DescribeModel", "session-1", modelName="flux-2-klein-9b")
+    client.call.assert_awaited_once_with(
+        "DescribeModel", "session-1", modelName="flux-2-klein-9b", subtype="Stable-Diffusion"
+    )
     payload = _sent_payload(client)
     assert payload["model"] == "flux-2-klein-9b"
     assert payload["images"] == 1
@@ -461,3 +464,150 @@ async def test_handle_when_generation_times_out_should_raise_timeout():
     ):
         await handle(request)
     await _drain_interrupts()
+
+
+@pytest.mark.asyncio
+async def test_handle_when_loras_given_should_send_resolved_names_and_weights():
+    # Arrange
+    loras = [
+        make_lora_description(name="styles/ink-wash.safetensors"),
+        make_lora_description(name="detail.safetensors", default_weight="0.7"),
+        make_lora_description(name="glow.safetensors", default_weight="0.7"),
+    ]
+    client = make_swarmui_client(loras=loras)
+    request = make_generate_images_request(
+        loras=[{"name": "styles/ink-wash"}, {"name": "detail.safetensors"}, {"name": "glow", "weight": -0.5}]
+    )
+
+    # Act
+    with patch(GET_CLIENT, return_value=client), patch(GET_SETTINGS, return_value=_settings()):
+        await handle(request)
+
+    # Assert
+    client.call.assert_any_await("DescribeModel", "session-1", modelName="styles/ink-wash", subtype="LoRA")
+    payload = _sent_payload(client)
+    assert payload["loras"] == ["styles/ink-wash", "detail", "glow"]
+    assert payload["loraweights"] == [1.0, 0.7, -0.5]
+
+
+@pytest.mark.asyncio
+async def test_handle_when_no_loras_should_leave_lora_params_out():
+    # Arrange
+    client = make_swarmui_client()
+    request = make_generate_images_request()
+
+    # Act
+    with patch(GET_CLIENT, return_value=client), patch(GET_SETTINGS, return_value=_settings()):
+        await handle(request)
+
+    # Assert
+    payload = _sent_payload(client)
+    assert "loras" not in payload
+    assert "loraweights" not in payload
+
+
+@pytest.mark.asyncio
+async def test_handle_when_lora_unknown_should_raise_model_not_found_before_generating():
+    # Arrange
+    client = make_swarmui_client(loras=[make_lora_description()])
+    request = make_generate_images_request(loras=[{"name": "styles/ink-wash"}, {"name": "missing"}])
+
+    # Act & Assert
+    with patch(GET_CLIENT, return_value=client), patch(GET_SETTINGS, return_value=_settings()):
+        with pytest.raises(SwarmUIModelNotFoundError, match="LoRA 'missing' not found"):
+            await handle(request)
+    client.open_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_when_lora_built_for_another_model_should_still_apply_it():
+    # Arrange
+    client = make_swarmui_client(loras=[make_lora_description(compat_class="stable-diffusion-xl-v1")])
+    request = make_generate_images_request(loras=[{"name": "styles/ink-wash"}])
+
+    # Act
+    with patch(GET_CLIENT, return_value=client), patch(GET_SETTINGS, return_value=_settings()):
+        await handle(request)
+
+    # Assert
+    assert _sent_payload(client)["loras"] == ["styles/ink-wash"]
+
+
+@pytest.mark.asyncio
+async def test_handle_when_init_image_given_should_send_image_mask_and_creativity():
+    # Arrange
+    client = make_swarmui_client()
+    request = make_generate_images_request()
+    init = InitImage(image="aW1hZ2U=", width=1024, height=1024, mask="bWFzaw==", creativity=0.4)
+
+    # Act
+    with patch(GET_CLIENT, return_value=client), patch(GET_SETTINGS, return_value=_settings()):
+        await handle(request, init)
+
+    # Assert
+    payload = _sent_payload(client)
+    assert payload["initimage"] == "aW1hZ2U="
+    assert payload["maskimage"] == "bWFzaw=="
+    assert payload["initimagecreativity"] == 0.4
+
+
+@pytest.mark.asyncio
+async def test_handle_when_init_image_without_mask_or_creativity_should_leave_them_to_swarmui():
+    # Arrange
+    client = make_swarmui_client()
+    request = make_generate_images_request()
+
+    # Act
+    with patch(GET_CLIENT, return_value=client), patch(GET_SETTINGS, return_value=_settings()):
+        await handle(request, InitImage(image="aW1hZ2U=", width=1024, height=1024))
+
+    # Assert
+    payload = _sent_payload(client)
+    assert "maskimage" not in payload
+    assert "initimagecreativity" not in payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("image_size", "model_size", "expected"),
+    [
+        ((64, 48), (1024, 1024), (1184, 880)),  # upscaled to the model's pixel count, aspect kept
+        ((1536, 1024), (1024, 1024), (1248, 832)),  # downscaled the same way
+        ((800, 600), (0, 0), (800, 608)),  # no standard size: the image's own, rounded to multiples of 16
+        ((4000, 100), (1024, 1024), (2048, 256)),  # extreme aspect ratios clamp to the size limits
+    ],
+)
+async def test_handle_when_init_image_and_no_size_should_fit_image_aspect_to_model(image_size, model_size, expected):
+    # Arrange
+    description = make_model_description(width=model_size[0], height=model_size[1])
+    client = make_swarmui_client(description=description)
+    request = make_generate_images_request()
+    init = InitImage(image="aW1hZ2U=", width=image_size[0], height=image_size[1])
+
+    # Act
+    with patch(GET_CLIENT, return_value=client), patch(GET_SETTINGS, return_value=_settings()):
+        await handle(request, init)
+
+    # Assert
+    payload = _sent_payload(client)
+    assert (payload["width"], payload["height"]) == expected
+
+
+@pytest.mark.asyncio
+async def test_handle_when_init_image_and_size_given_should_prefer_explicit_size_then_params():
+    # Arrange
+    init = InitImage(image="aW1hZ2U=", width=64, height=48)
+    explicit = make_generate_images_request(size="512x512")
+    from_params = make_generate_images_request(params={"width": 640, "height": 640})
+    explicit_client, params_client = make_swarmui_client(), make_swarmui_client()
+
+    # Act
+    with patch(GET_SETTINGS, return_value=_settings()):
+        with patch(GET_CLIENT, return_value=explicit_client):
+            await handle(explicit, init)
+        with patch(GET_CLIENT, return_value=params_client):
+            await handle(from_params, init)
+
+    # Assert
+    assert (_sent_payload(explicit_client)["width"], _sent_payload(explicit_client)["height"]) == (512, 512)
+    assert (_sent_payload(params_client)["width"], _sent_payload(params_client)["height"]) == (640, 640)
