@@ -237,10 +237,11 @@ Tests mirror `src/` under `tests/`. Every operation gets up to three files in `t
   - `commits` (PRs only): `cz check` on the PR's commits, since releases are computed from them.
   - `docker` (PRs only): builds the image without pushing it.
   - `publish` (main only): builds the tip of `main` and pushes `:latest` and `:sha-<7-char sha>` to ghcr.
-  - `release` (main only): if `v<pyproject version>` isn't tagged yet, tags the commit that set that version and pushes it as `:<version>` and `:sha-<sha>`.
+  - `release` (main only, after `publish`): if `v<pyproject version>` isn't tagged yet, tags the commit `publish` built and adds `:<version>` to its image without rebuilding.
   - `lint`, `test` and `build` are required checks.
 - **Releases.** Commits follow Conventional Commits, and commitizen (`[tool.commitizen]` in `pyproject.toml`) owns the version: `major_version_zero`, so `feat` and breaking changes bump the minor and `fix`/`refactor`/`perf` the patch; `build`, `ci`, `docs`, `test` and `chore` never bump.
-  - `main` only accepts PRs, so CI can't push bump commits. To release, run `uv run cz bump` on a branch off `main`, push the branch (not the local tag), and merge the PR. The `release` job then tags the bump commit on `main`.
+  - `main` only accepts PRs, so CI can't push bump commits. To release, run `uv run cz bump` on a branch off `main`, delete the local tag it creates (`git tag -d v<version>`), push the branch, and merge the PR. The `release` job then tags `main`'s tip.
+  - `release` tags `main`'s tip, not the bump commit, because `GITHUB_TOKEN` can't create a tag on a commit whose workflow files differ from `main`'s. Commits that reach `main` between the bump and its merge are missing from that release's changelog, so re-run `cz bump` if `main` moved.
   - `cz bump` updates the version in `pyproject.toml` and `uv.lock` and prepends the release to `CHANGELOG.md`.
   - Roll back by pointing `compose.yml` at a `:<version>` or `:sha-<sha>` tag.
 - **Dependabot** sends weekly grouped updates. Patch/minor updates for uv and Actions auto-merge once checks pass; majors, Docker and torch minors need a manual merge. Details are in `AGENTS.local.md`.
