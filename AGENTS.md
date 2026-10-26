@@ -231,3 +231,9 @@ Tests mirror `src/` under `tests/`. Every operation gets up to three files in `t
   - `publish` (main only): builds and pushes the image to ghcr.
   - `lint`, `test` and `build` are required checks.
 - **Dependabot** sends weekly grouped updates. Patch/minor updates for uv and Actions auto-merge once checks pass; majors, Docker and torch minors need a manual merge. Details are in `AGENTS.local.md`.
+
+---
+
+## 9. Issues and pull requests
+
+Write every issue and PR from the templates in [`docs/templates/`](docs/templates/README.md), which also holds the title and label conventions. Keep them minimal: a few bullets per section, nothing the diff already shows.
