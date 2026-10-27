@@ -1,4 +1,4 @@
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -109,7 +109,7 @@ def _extract_usage(chunk_usage: object) -> Usage | None:
     )
 
 
-async def open_stream(query: ChatCompletionsRequest) -> AsyncIterator[ChatCompletionChunkResponse]:
+async def open_stream(query: ChatCompletionsRequest) -> AsyncGenerator[ChatCompletionChunkResponse]:
     """Open the upstream stream eagerly, then return an iterator over its converted chunks.
 
     Opening eagerly means connection failures and upstream 4xx/5xx responses raise here, before

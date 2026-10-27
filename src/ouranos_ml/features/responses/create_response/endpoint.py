@@ -1,11 +1,9 @@
-from collections.abc import AsyncIterator
-
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ouranos_ml.features.responses.create_response.schemas import CreateResponseRequest, ResponseObject
 from ouranos_ml.features.responses.create_response.service import handle, open_stream
-from ouranos_ml.shared.utils import server_side_event
+from ouranos_ml.shared.utils import sse_response
 
 
 async def _create_response(request: CreateResponseRequest) -> ResponseObject | StreamingResponse | JSONResponse:
@@ -27,13 +25,7 @@ async def _create_response(request: CreateResponseRequest) -> ResponseObject | S
             },
         )
     if request.stream:
-        events = await open_stream(request)
-
-        async def stream_events() -> AsyncIterator[str]:
-            async for event in events:
-                yield server_side_event(event, event=event.type)
-
-        return StreamingResponse(stream_events(), media_type="text/event-stream")
+        return sse_response(await open_stream(request), named=True)
     return await handle(request)
 
 

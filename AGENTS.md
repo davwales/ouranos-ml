@@ -49,7 +49,7 @@ Seven domains, ten operations:
 
 ```
 src/ouranos_ml/shared/
-├── utils.py                    # server_side_event(data, event=None), done_event()
+├── utils.py                    # sse_response(events, named=, done=): every SSE endpoint's response
 ├── logging/                    # import from ouranos_ml.shared.logging (re-exports below)
 │   ├── config.py               # configure_logging(): structlog + stdlib, console + Loki
 │   ├── loki.py                 # LokiPushHandler: batched background push to Loki
@@ -104,7 +104,7 @@ Placement rules:
 ## 4. Conventions
 
 - **Wire format.** Requests may arrive in camelCase or snake_case. Responses are snake_case everywhere (JSON and SSE), which is the OpenAI wire format pantheon's client expects. `BaseSchema` does both: camelCase input aliases, `populate_by_name`, snake_case serialization, `from_attributes`. An explicit `Field(alias=...)` still wins (e.g. `json_schema` ↔ `schema`).
-- **SSE.** `server_side_event()` serializes with `by_alias=True`, the same as FastAPI's JSON path.
+- **SSE.** Streaming endpoints return `sse_response(await open_stream(...), named=..., done=...)`, where `open_stream` returns an async generator. The response closes the generator when it ends, including on client disconnect (Starlette never closes the body iterator), so its `finally`/`async with` cleanup runs right away. Events serialize with `by_alias=True`, the same as FastAPI's JSON path. `[DONE]` is only sent when the stream completes.
 
   | Endpoint | Stream shape |
   |---|---|
