@@ -47,6 +47,10 @@ updates:
     labels: [dependencies, docker]
     commit-message:
       prefix: build(docker)
+    # The base image's Python minor follows .python-version, so only take patch releases.
+    ignore:
+      - dependency-name: python
+        update-types: [version-update:semver-major, version-update:semver-minor]
 
   - package-ecosystem: github-actions
     directory: /

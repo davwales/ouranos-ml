@@ -221,8 +221,8 @@ Tests mirror `src/` under `tests/`. Every operation gets up to three files in `t
 ## 8. Infrastructure
 
 - **Dependencies.** Versions live in `pyproject.toml` (`~=X.Y.Z` pins) and `uv.lock`. Dependabot owns bumps, so don't widen pins by hand. Only `dev` is a default group; Docker's `uv sync --no-dev` installs runtime deps only. `uv` is required, and the build backend is `uv_build`.
-- **PyTorch.** It comes from the explicit CUDA 13.2 index (`cu132`) on non-macOS. The Docker base image's system torch is unused, because the app runs the venv's pinned torch, so the two versions can drift independently.
-- **Dockerfile.** Base image `pytorch/pytorch:*-cuda13.2-*`, uv copied from a named stage.
+- **PyTorch.** It comes from the explicit CUDA 13.2 index (`cu132`) on non-macOS. Its `nvidia-*` wheels carry the CUDA, cuDNN and NCCL libraries, so the container needs only the driver, which the NVIDIA runtime or CDI injects.
+- **Dockerfile.** Base image `python:3.12.*-slim-trixie` (keep it on `.python-version`'s minor), uv copied from a named stage. No CUDA or PyTorch base, since that would duplicate the venv's CUDA libraries. `NVIDIA_VISIBLE_DEVICES`/`NVIDIA_DRIVER_CAPABILITIES` are set, as CUDA base images do, so the NVIDIA runtime mounts the driver.
   - Deps are synced first (keyed on `pyproject.toml` + `uv.lock`), then `README.md`, `models/` and `src/` are copied as separate layers, so a code change rebuilds only the small trailing layers.
   - The venv is first on `PATH`.
   - `HEALTHCHECK` probes `/health` with the venv's Python, since the image has no curl. A 503 marks the container unhealthy.
