@@ -55,6 +55,7 @@ src/ouranos_ml/shared/
 │   ├── loki.py                 # LokiPushHandler: batched background push to Loki
 │   ├── middleware.py           # RequestLoggingMiddleware: request ids, one log line per request, JSON 500s
 │   └── trace_context.py        # add_trace_context(): TraceId/SpanId on log lines
+├── telemetry/                  # start_operation() / OperationSpan: span + <name>.duration + outcome (§6)
 ├── domain/
 │   ├── core/base_schema.py     # BaseSchema
 │   ├── core/settings.py        # Settings + get_settings() (lru_cache'd, reads env and .env)
@@ -187,6 +188,9 @@ Behavior that isn't obvious from reading one file.
   - `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` is **required**. Without it the SDK picks the gRPC exporter, which isn't installed, and instrumentation silently does nothing. The Dockerfile bakes it in.
   - `/health` is excluded from server spans, and the Loki push URL from httpx spans. Without the second exclusion, every flush would create a root span.
   - W3C `traceparent` joins pantheon's traces automatically. LLM calls get `gen_ai.*` spans and token metrics from genai-openai.
+  - Manual telemetry covers what no instrumentation sees. Use `start_operation(name, attributes=..., metric_attributes=...)` from `ouranos_ml.shared.telemetry`, not a tracer of your own. It returns an `OperationSpan`: a span that records an `outcome` and a `<name>.duration` histogram when it ends. The outcome is `completed` with no error, `failed` for an `Exception` (exception recorded, ERROR status), and `interrupted` for any other `BaseException` (client disconnect, cancellation). Metric attributes become metric dimensions, so keep them low cardinality; plain attributes are span-only. Use it as a context manager, or, when the operation crosses calls, as `with op.activate():` (child spans nest) plus `op.end(error)` later. `end(..., record_metrics=False)` skips the metric.
+  - Image generations are one `image_generation` operation: it starts in `_open`, so the SwarmUI lookups nest under it, and ends when `_generate` finishes. Stage changes are span events. Failures before the generation starts record no metric. Besides `image_generation.duration` there's `image_generation.wait_duration` (queue plus model load, with `image.model_loaded`) and `image_generation.images`, all keyed by `image.operation` and the resolved `image.model`. Plutus has `plutus.forecast` and `plutus.load_model` operations.
+  - The OTel API is a no-op without the SDK, so tests use `patch_operation_telemetry()` from `tests/ouranos_ml/shared/otel_mocks.py` (in-memory spans, mock duration histograms).
   - Logs never go through OTel. Loki carries them, with the trace keys.
 
 ---
