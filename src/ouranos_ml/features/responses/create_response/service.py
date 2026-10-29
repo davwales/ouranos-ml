@@ -1,5 +1,5 @@
 import time
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import structlog
@@ -66,7 +66,7 @@ async def handle(request: CreateResponseRequest) -> ResponseObject:
     return response
 
 
-async def open_stream(request: CreateResponseRequest) -> AsyncIterator[ResponseStreamEvent]:
+async def open_stream(request: CreateResponseRequest) -> AsyncGenerator[ResponseStreamEvent]:
     """Open the upstream stream eagerly, then return an iterator over its converted events.
 
     Opening eagerly means connection failures and upstream 4xx/5xx responses raise here, before

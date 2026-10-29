@@ -1,26 +1,16 @@
-from collections.abc import AsyncIterator
-from contextlib import aclosing
-
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from ouranos_ml.features.images.edit_images.schemas import EditImagesRequest
 from ouranos_ml.features.images.edit_images.service import handle, open_stream
 from ouranos_ml.features.images.schemas import ImagesResponse
-from ouranos_ml.shared.utils import server_side_event
+from ouranos_ml.shared.utils import sse_response
 
 
 async def _edit_images(request: EditImagesRequest) -> ImagesResponse | StreamingResponse:
     """Edits an image, streamed as named SSE progress events (no ``[DONE]``) when ``stream`` is true."""
     if request.stream:
-        events = await open_stream(request)
-
-        async def stream_events() -> AsyncIterator[str]:
-            async with aclosing(events):
-                async for event in events:
-                    yield server_side_event(event, event=event.type)
-
-        return StreamingResponse(stream_events(), media_type="text/event-stream")
+        return sse_response(await open_stream(request), named=True)
     return await handle(request)
 
 
