@@ -30,7 +30,7 @@ from tests.ouranos_ml.shared.factories.images_factories import (
     make_swarm_status,
     make_swarmui_client,
 )
-from tests.ouranos_ml.shared.otel_mocks import make_recording_tracer
+from tests.ouranos_ml.shared.otel_mocks import patch_operation_telemetry
 
 GET_CLIENT = "ouranos_ml.features.images.generation.get_swarmui_client"
 GET_SETTINGS = "ouranos_ml.features.images.generation.get_settings"
@@ -620,14 +620,14 @@ async def test_handle_when_init_image_and_size_given_should_prefer_explicit_size
 @pytest.fixture
 def telemetry():
     """Record the generation spans in memory and mock the metric instruments."""
-    tracer, spans = make_recording_tracer()
     with (
-        patch.object(generation, "_tracer", tracer),
-        patch.object(generation, "_duration_histogram") as duration,
+        patch_operation_telemetry() as recorded,
         patch.object(generation, "_wait_histogram") as wait,
         patch.object(generation, "_image_counter") as images,
     ):
-        yield SimpleNamespace(spans=spans, duration=duration, wait=wait, images=images)
+        yield SimpleNamespace(
+            spans=recorded.spans, duration=recorded.durations["image_generation"], wait=wait, images=images
+        )
 
 
 _ATTRIBUTES = {"image.operation": "generate", "image.model": "flux-2-klein-9b"}
@@ -647,7 +647,7 @@ async def test_handle_when_generation_succeeds_should_record_span_and_metrics(te
     (span,) = telemetry.spans.get_finished_spans()
     assert span.name == "image_generation"
     assert span.attributes["image.model"] == "flux-2-klein-9b"
-    assert (span.attributes["image.outcome"], span.attributes["image.count"], span.attributes["image.n"]) == (
+    assert (span.attributes["outcome"], span.attributes["image.count"], span.attributes["image.n"]) == (
         "completed",
         2,
         2,
@@ -655,7 +655,7 @@ async def test_handle_when_generation_succeeds_should_record_span_and_metrics(te
     assert [event.name for event in span.events] == ["queued", "loading_model", "generating"]
     assert span.status.status_code == StatusCode.UNSET
     telemetry.duration.record.assert_called_once()
-    assert telemetry.duration.record.call_args.args[1] == {**_ATTRIBUTES, "image.outcome": "completed"}
+    assert telemetry.duration.record.call_args.args[1] == {**_ATTRIBUTES, "outcome": "completed"}
     telemetry.wait.record.assert_called_once()
     assert telemetry.wait.record.call_args.args[1] == {**_ATTRIBUTES, "image.model_loaded": True}
     telemetry.images.add.assert_called_once_with(2, _ATTRIBUTES)
@@ -703,10 +703,10 @@ async def test_open_stream_when_swarmui_reports_error_should_record_failed_span(
 
     # Assert
     (span,) = telemetry.spans.get_finished_spans()
-    assert span.attributes["image.outcome"] == "failed"
+    assert span.attributes["outcome"] == "failed"
     assert span.status.status_code == StatusCode.ERROR
     assert span.events[-1].name == "exception"
-    assert telemetry.duration.record.call_args.args[1]["image.outcome"] == "failed"
+    assert telemetry.duration.record.call_args.args[1]["outcome"] == "failed"
     telemetry.images.add.assert_not_called()
 
 
@@ -724,9 +724,9 @@ async def test_open_stream_when_caller_stops_early_should_record_interrupted_spa
 
     # Assert
     (span,) = telemetry.spans.get_finished_spans()
-    assert span.attributes["image.outcome"] == "interrupted"
+    assert span.attributes["outcome"] == "interrupted"
     assert span.status.status_code == StatusCode.UNSET
-    assert telemetry.duration.record.call_args.args[1]["image.outcome"] == "interrupted"
+    assert telemetry.duration.record.call_args.args[1]["outcome"] == "interrupted"
 
 
 @pytest.mark.asyncio

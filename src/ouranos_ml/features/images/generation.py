@@ -7,13 +7,12 @@ import math
 import time
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
 import structlog
-from opentelemetry import metrics, trace
-from opentelemetry.trace import Span
+from opentelemetry import metrics
 
 from ouranos_ml.features.images.presets import ModelDefaults, model_id, resolve_defaults
 from ouranos_ml.features.images.schemas import (
@@ -33,15 +32,13 @@ from ouranos_ml.features.images.schemas import (
 from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.infra.clients.swarmui_client import SwarmUIClient, get_swarmui_client
 from ouranos_ml.shared.infra.swarmui.errors import SwarmUIError, SwarmUIModelNotFoundError, SwarmUITimeoutError
+from ouranos_ml.shared.telemetry import OperationSpan, start_operation
 
 logger = structlog.get_logger(__name__)
 
-# SwarmUI generates over a WebSocket, which no instrumentation covers, so generations are traced and measured here.
-_tracer = trace.get_tracer(__name__)
+# SwarmUI generates over a WebSocket, which no instrumentation covers, so each generation is an ``OperationSpan``
+# (``image_generation.duration``) plus these generation-specific instruments.
 _meter = metrics.get_meter(__name__)
-_duration_histogram = _meter.create_histogram(
-    "image_generation.duration", unit="s", description="Time from request to the last image, or to failure"
-)
 _wait_histogram = _meter.create_histogram(
     "image_generation.wait_duration", unit="s", description="Time until SwarmUI starts generating: queue and loading"
 )
@@ -78,16 +75,9 @@ class _Generation:
     client: SwarmUIClient
     session_id: str
     model: str
-    operation: str
     payload: dict[str, Any]
     messages: AsyncGenerator[dict[str, Any]]
-    span: Span
-    started: float = field(default_factory=time.monotonic)
-
-    @property
-    def metric_attributes(self) -> dict[str, str]:
-        """Low-cardinality attributes shared by every metric of this generation."""
-        return {"image.operation": self.operation, "image.model": self.model}
+    telemetry: OperationSpan
 
 
 async def handle(request: ImageRequest, init: InitImage | None = None) -> ImagesResponse:
@@ -132,9 +122,7 @@ async def _open(request: ImageRequest, init: InitImage | None) -> _Generation:
 
     The generation's span starts here, so the lookups nest under it, and ends when ``_generate`` finishes.
     """
-    started = time.monotonic()
     model = request.model or get_settings().swarmui_default_model
-    operation = "edit" if init else "generate"
 
     logger.info(
         "image generation requested",
@@ -147,18 +135,18 @@ async def _open(request: ImageRequest, init: InitImage | None) -> _Generation:
         mask=bool(init and init.mask),
     )
 
-    span = _tracer.start_span(
+    telemetry = start_operation(
         "image_generation",
         attributes={
-            "image.operation": operation,
             "image.model": model,
             "image.n": request.n,
             "image.stream": bool(request.stream),
             "image.lora_count": len(request.loras),
         },
+        metric_attributes={"image.operation": "edit" if init else "generate"},
     )
     try:
-        with trace.use_span(span):
+        with telemetry.activate():
             client = get_swarmui_client()
             session_id = await client.new_session()
             description, *lora_descriptions = await asyncio.gather(
@@ -172,23 +160,23 @@ async def _open(request: ImageRequest, init: InitImage | None) -> _Generation:
             payload = _build_payload(request, model, resolve_defaults(description), loras, init)
             messages = await client.open_generation(session_id, payload)
     except BaseException as exc:
-        span.end()
+        # The HTTP status already counts these, and the requested model name must not become a metric dimension.
+        telemetry.end(exc, record_metrics=False)
         if isinstance(exc, SwarmUIModelNotFoundError):
             logger.warning("image model not found", model=model, error=exc.message)
         elif isinstance(exc, Exception):
             logger.error("image generation upstream failed", model=model, exc_info=True)
         raise
 
-    span.set_attribute("image.model", model_id(description["name"]))
+    resolved = model_id(description["name"])
+    telemetry.set_metric_attributes({"image.model": resolved})
     return _Generation(
         client=client,
         session_id=session_id,
-        model=model_id(description["name"]),
-        operation=operation,
+        model=resolved,
         payload=payload,
         messages=messages,
-        span=span,
-        started=started,
+        telemetry=telemetry,
     )
 
 
@@ -321,7 +309,7 @@ async def _generate(generation: _Generation, translator: "_Translator") -> Async
             "image generation complete",
             model=generation.model,
             count=done.count,
-            duration_ms=round((time.monotonic() - generation.started) * 1000),
+            duration_ms=round(generation.telemetry.elapsed() * 1000),
         )
 
         yield done
@@ -333,29 +321,11 @@ async def _generate(generation: _Generation, translator: "_Translator") -> Async
     finally:
         if not completed:
             _interrupt_in_background(generation)
-        _finish_telemetry(generation, translator.count, completed, error)
-
-
-def _finish_telemetry(generation: _Generation, count: int, completed: bool, error: BaseException | None) -> None:
-    """Record the generation's outcome on its span and metrics, then end the span.
-
-    A generation that stopped without an error of its own (client disconnect, cancellation) is ``interrupted``.
-    """
-    if completed:
-        outcome = "completed"
-    elif isinstance(error, Exception):
-        outcome = "failed"
-        generation.span.record_exception(error)
-        generation.span.set_status(trace.StatusCode.ERROR, f"{type(error).__name__}: {error}")
-    else:
-        outcome = "interrupted"
-    generation.span.set_attributes({"image.outcome": outcome, "image.count": count})
-    generation.span.end()
-    _duration_histogram.record(
-        time.monotonic() - generation.started, {**generation.metric_attributes, "image.outcome": outcome}
-    )
-    if count:
-        _image_counter.add(count, generation.metric_attributes)
+        generation.telemetry.set_attributes({"image.count": translator.count})
+        # Closing the stream after the final event still counts as completed.
+        generation.telemetry.end(None if completed else error)
+        if translator.count:
+            _image_counter.add(translator.count, generation.telemetry.metric_attributes)
 
 
 def _interrupt_in_background(generation: _Generation) -> None:
@@ -438,7 +408,7 @@ class _Translator:
             return []
 
         self._stage = stage
-        self._generation.span.add_event(stage)
+        self._generation.telemetry.add_event(stage)
         self._loaded_model |= stage == "loading_model"
         if stage == "generating":
             self._mark_generating()
@@ -519,8 +489,8 @@ class _Translator:
             return
         self._generating = True
         _wait_histogram.record(
-            time.monotonic() - self._generation.started,
-            {**self._generation.metric_attributes, "image.model_loaded": self._loaded_model},
+            self._generation.telemetry.elapsed(),
+            {**self._generation.telemetry.metric_attributes, "image.model_loaded": self._loaded_model},
         )
 
     def _total_percent(self) -> float:
