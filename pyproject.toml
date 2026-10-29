@@ -27,7 +27,7 @@ dependencies = [
 
 [dependency-groups]
 dev = ["commitizen>=4.13.10"]
-experiments = ["matplotlib~=3.11.0", "pandas~=2.3.0", "scikit-learn~=1.9.0"]
+experiments = ["matplotlib~=3.11.0", "pandas>=2.3,<3.1", "scikit-learn~=1.9.0"]
 linting = ["ruff>=0.14.13", "ty>=0.0.12"]
 test = [
     "pytest>=8.3.0",
