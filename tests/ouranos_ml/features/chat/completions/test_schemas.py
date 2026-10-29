@@ -4,6 +4,8 @@ from ouranos_ml.features.chat.completions.schemas import (
     ChatCompletionChunkResponse,
     ChatCompletionRole,
     ChatCompletionsRequest,
+    ChunkDelta,
+    ChunkToolCall,
     JSONSchemaConfig,
     RequestMessage,
     ResponseFormatJSONObject,
@@ -24,7 +26,7 @@ def test_request_message_serialization_when_populated_should_use_camel_case():
     data = message.model_dump(by_alias=True)
 
     # Assert
-    assert data == {"role": "user", "content": "Hello"}
+    assert data == {"role": "user", "content": "Hello", "tool_calls": None, "tool_call_id": None}
 
 
 def test_request_message_deserialization_when_camel_case_input_should_populate():
@@ -331,3 +333,77 @@ def test_chunk_response_when_no_usage_should_serialize_with_null_usage():
 
     # Assert
     assert data["usage"] is None
+
+
+def test_request_message_when_assistant_has_tool_calls_and_no_content_should_validate():
+    # Arrange
+    data = {
+        "role": "assistant",
+        "toolCalls": [{"id": "call_1", "type": "function", "function": {"name": "f", "arguments": "{}"}}],
+    }
+
+    # Act
+    message = RequestMessage.model_validate(data)
+
+    # Assert
+    assert message.content is None
+    assert message.tool_calls is not None
+    assert message.tool_calls[0].function.name == "f"
+
+
+def test_request_message_when_tool_role_has_tool_call_id_should_validate():
+    # Act
+    message = RequestMessage.model_validate({"role": "tool", "content": "18C", "tool_call_id": "call_1"})
+
+    # Assert
+    assert message.role == ChatCompletionRole.TOOL
+    assert message.tool_call_id == "call_1"
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"role": "tool", "content": "18C"},
+        {"role": "user", "content": "Hi", "tool_call_id": "call_1"},
+        {"role": "user", "tool_calls": [{"id": "c", "function": {"name": "f", "arguments": "{}"}}]},
+        {"role": "user"},
+        {"role": "assistant"},
+    ],
+)
+def test_request_message_when_role_fields_inconsistent_should_raise_validation_error(data):
+    # Act & Assert
+    with pytest.raises(ValidationError):
+        RequestMessage.model_validate(data)
+
+
+@pytest.mark.parametrize("tool_choice", ["none", "auto", "required", {"type": "function", "function": {"name": "f"}}])
+def test_chat_completions_request_when_tool_choice_valid_should_validate(tool_choice):
+    # Arrange
+    data = {"model": "m", "messages": [{"role": "user", "content": "Hi"}], "toolChoice": tool_choice}
+
+    # Act
+    request = ChatCompletionsRequest.model_validate(data)
+
+    # Assert
+    assert request.tool_choice is not None
+
+
+def test_chat_completions_request_when_tool_choice_unknown_should_raise_validation_error():
+    # Arrange
+    data = {"model": "m", "messages": [{"role": "user", "content": "Hi"}], "tool_choice": "sometimes"}
+
+    # Act & Assert
+    with pytest.raises(ValidationError):
+        ChatCompletionsRequest.model_validate(data)
+
+
+def test_chunk_delta_when_tool_call_piece_has_unset_fields_should_omit_them():
+    # Arrange
+    piece = ChunkToolCall.model_validate({"index": 0, "function": {"arguments": "}"}})
+    delta = ChunkDelta(content=None, tool_calls=[piece])
+
+    # Act
+    data = delta.model_dump(by_alias=True)
+
+    # Assert
+    assert data["tool_calls"] == [{"index": 0, "function": {"arguments": "}"}}]

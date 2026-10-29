@@ -7,13 +7,19 @@ from openai import AsyncStream
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionChunk,
+    ChatCompletionFunctionToolParam,
+    ChatCompletionMessageFunctionToolCallParam,
     ChatCompletionMessageParam,
+    ChatCompletionNamedToolChoiceParam,
     ChatCompletionSystemMessageParam,
+    ChatCompletionToolChoiceOptionParam,
+    ChatCompletionToolMessageParam,
     ChatCompletionUserMessageParam,
 )
 from openai.types.chat.chat_completion_chunk import ChoiceDelta
 from openai.types.chat.completion_create_params import CompletionCreateParamsStreaming
 from openai.types.chat.completion_create_params import ResponseFormat as ResponseFormatParam
+from openai.types.shared_params import FunctionDefinition as FunctionDefinitionParam
 from openai.types.shared_params import ResponseFormatJSONObject as ResponseFormatJSONObjectParam
 from openai.types.shared_params import ResponseFormatJSONSchema as ResponseFormatJSONSchemaParam
 from openai.types.shared_params import ResponseFormatText as ResponseFormatTextParam
@@ -28,12 +34,18 @@ from ouranos_ml.features.chat.completions.schemas import (
     ChoiceMessage,
     ChunkChoice,
     ChunkDelta,
+    ChunkToolCall,
+    FunctionTool,
+    NamedToolChoice,
     RequestMessage,
     ResponseFormat,
     ResponseFormatJSONObject,
     ResponseFormatJSONSchema,
     ResponseFormatText,
     StreamOptions,
+    ToolCall,
+    ToolCallFunction,
+    ToolChoiceMode,
     Usage,
 )
 from ouranos_ml.shared.infra.clients.llm_client import get_openai_client
@@ -64,6 +76,7 @@ async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
     deltas = [c.choices[0].delta for c in chunks if c.choices]
     content = "".join(d.content for d in deltas if d.content)
     reasoning_content = "".join(d.reasoning_content for d in deltas if d.reasoning_content) or None
+    tool_calls = _assemble_tool_calls([tc for d in deltas for tc in d.tool_calls or []])
 
     usage = chunks[-1].usage or Usage()
 
@@ -78,6 +91,7 @@ async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
         finish_reason=finish_reason,
         prompt_tokens=usage.prompt_tokens,
         completion_tokens=usage.completion_tokens,
+        tool_call_count=len(tool_calls),
     )
 
     return ChatCompletionsResponse(
@@ -89,13 +103,28 @@ async def handle(query: ChatCompletionsRequest) -> ChatCompletionsResponse:
                 finish_reason=finish_reason,
                 index=0,
                 message=ChoiceMessage(
-                    role=ChatCompletionRole.ASSISTANT, content=content, reasoning_content=reasoning_content
+                    role=ChatCompletionRole.ASSISTANT,
+                    content=None if tool_calls and not content else content,
+                    reasoning_content=reasoning_content,
+                    tool_calls=tool_calls or None,
                 ),
             )
         ],
         usage=usage,
         system_fingerprint=chunks[-1].system_fingerprint,
     )
+
+
+def _assemble_tool_calls(pieces: list[ChunkToolCall]) -> list[ToolCall]:
+    """Join streamed tool call pieces by ``index``: the first ``id`` and ``name`` win, ``arguments`` concatenate."""
+    calls: dict[int, ToolCall] = {}
+    for piece in pieces:
+        call = calls.setdefault(piece.index, ToolCall(id="", function=ToolCallFunction(name="", arguments="")))
+        call.id = call.id or piece.id or ""
+        if piece.function is not None:
+            call.function.name = call.function.name or piece.function.name or ""
+            call.function.arguments += piece.function.arguments or ""
+    return [calls[index] for index in sorted(calls)]
 
 
 def _extract_usage(chunk_usage: object) -> Usage | None:
@@ -119,6 +148,7 @@ async def open_stream(query: ChatCompletionsRequest) -> AsyncIterator[ChatComple
         "chat completion requested",
         model=query.model,
         message_count=len(query.messages),
+        tool_count=len(query.tools or []),
         stream=bool(query.stream),
     )
     try:
@@ -156,7 +186,11 @@ async def _relay_stream(
 
 def _to_delta(delta: ChoiceDelta) -> ChunkDelta:
     """Convert an upstream delta; ``reasoning_content`` is a llama.cpp extension the SDK keeps as an extra field."""
-    return ChunkDelta(content=delta.content, reasoning_content=getattr(delta, "reasoning_content", None))
+    return ChunkDelta(
+        content=delta.content,
+        reasoning_content=getattr(delta, "reasoning_content", None),
+        tool_calls=[ChunkToolCall.model_validate(tc) for tc in delta.tool_calls] if delta.tool_calls else None,
+    )
 
 
 def _to_create_params(query: ChatCompletionsRequest) -> CompletionCreateParamsStreaming:
@@ -182,7 +216,31 @@ def _to_create_params(query: ChatCompletionsRequest) -> CompletionCreateParamsSt
         params["frequency_penalty"] = query.frequency_penalty
     if query.logit_bias is not None:
         params["logit_bias"] = query.logit_bias
+    if query.tools:
+        params["tools"] = [_to_tool_param(tool) for tool in query.tools]
+    if query.tool_choice is not None:
+        params["tool_choice"] = _to_tool_choice_param(query.tool_choice)
+    if query.parallel_tool_calls is not None:
+        params["parallel_tool_calls"] = query.parallel_tool_calls
     return params
+
+
+def _to_tool_param(tool: FunctionTool) -> ChatCompletionFunctionToolParam:
+    """Convert a function tool; unset optional fields are left out (llama.cpp rejects a ``null`` description)."""
+    function = FunctionDefinitionParam(name=tool.function.name)
+    if tool.function.description is not None:
+        function["description"] = tool.function.description
+    if tool.function.parameters is not None:
+        function["parameters"] = tool.function.parameters
+    if tool.function.strict is not None:
+        function["strict"] = tool.function.strict
+    return ChatCompletionFunctionToolParam(type="function", function=function)
+
+
+def _to_tool_choice_param(tool_choice: ToolChoiceMode | NamedToolChoice) -> ChatCompletionToolChoiceOptionParam:
+    if isinstance(tool_choice, NamedToolChoice):
+        return ChatCompletionNamedToolChoiceParam(type="function", function={"name": tool_choice.function.name})
+    return tool_choice
 
 
 def _to_response_format_param(response_format: ResponseFormat) -> ResponseFormatParam:
@@ -203,10 +261,23 @@ def _to_response_format_param(response_format: ResponseFormat) -> ResponseFormat
 
 
 def _convert_message(message: RequestMessage) -> ChatCompletionMessageParam:
+    """Convert a message; the schema guarantees ``content`` is set on every role but a tool-calling assistant."""
+    content = message.content or ""
     if message.role == ChatCompletionRole.SYSTEM:
-        return ChatCompletionSystemMessageParam(role="system", content=message.content)
+        return ChatCompletionSystemMessageParam(role="system", content=content)
     if message.role == ChatCompletionRole.USER:
-        return ChatCompletionUserMessageParam(role="user", content=message.content)
+        return ChatCompletionUserMessageParam(role="user", content=content)
     if message.role == ChatCompletionRole.ASSISTANT:
-        return ChatCompletionAssistantMessageParam(role="assistant", content=message.content)
+        param = ChatCompletionAssistantMessageParam(role="assistant", content=message.content)
+        if message.tool_calls:
+            param["tool_calls"] = [_to_tool_call_param(call) for call in message.tool_calls]
+        return param
+    if message.role == ChatCompletionRole.TOOL:
+        return ChatCompletionToolMessageParam(role="tool", content=content, tool_call_id=message.tool_call_id or "")
     raise ValueError(f"Unsupported message type '{message.role}'.")
+
+
+def _to_tool_call_param(call: ToolCall) -> ChatCompletionMessageFunctionToolCallParam:
+    return ChatCompletionMessageFunctionToolCallParam(
+        id=call.id, type="function", function={"name": call.function.name, "arguments": call.function.arguments}
+    )

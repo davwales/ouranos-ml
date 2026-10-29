@@ -6,6 +6,8 @@ from ouranos_ml.features.chat.completions.schemas import (
     ChatCompletionChunkResponse,
     ChatCompletionRole,
     ChatCompletionsRequest,
+    NamedFunction,
+    NamedToolChoice,
     RequestMessage,
     ResponseFormatJSONObject,
     ResponseFormatText,
@@ -23,8 +25,11 @@ from ouranos_ml.features.chat.completions.service import (
 from tests.ouranos_ml.shared.factories.chat_factories import (
     make_chat_request,
     make_chunk,
+    make_delta_tool_call,
+    make_function_tool,
     make_json_schema_response_format,
     make_request_message,
+    make_tool_call,
     make_usage_only_chunk,
 )
 from tests.ouranos_ml.shared.openai_mocks import make_mock_stream
@@ -667,3 +672,160 @@ async def test_handle_when_no_reasoning_content_should_leave_it_none():
 
     # Assert
     assert response.choices[0].message.reasoning_content is None
+
+
+def test_convert_message_when_assistant_has_tool_calls_should_forward_them():
+    # Arrange
+    message = RequestMessage(role=ChatCompletionRole.ASSISTANT, tool_calls=[make_tool_call()])
+
+    # Act
+    result = _convert_message(message)
+
+    # Assert
+    assert result == {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": '{"city":"Paris"}'}}
+        ],
+    }
+
+
+def test_convert_message_when_tool_role_should_return_tool_param():
+    # Arrange
+    message = RequestMessage(role=ChatCompletionRole.TOOL, content="18C", tool_call_id="call_1")
+
+    # Act
+    result = _convert_message(message)
+
+    # Assert
+    assert result == {"role": "tool", "content": "18C", "tool_call_id": "call_1"}
+
+
+def test_to_create_params_when_tools_set_should_forward_them_without_unset_fields():
+    # Arrange
+    request = make_chat_request(tools=[make_function_tool(description=None, parameters={"type": "object"})])
+    request.tool_choice = "required"
+    request.parallel_tool_calls = False
+
+    # Act
+    params = _to_create_params(request)
+
+    # Assert
+    assert params["tools"] == [
+        {"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object"}}}
+    ]
+    assert params["tool_choice"] == "required"
+    assert params["parallel_tool_calls"] is False
+
+
+def test_to_create_params_when_named_tool_choice_should_convert_it():
+    # Arrange
+    request = make_chat_request(tools=[make_function_tool()])
+    request.tool_choice = NamedToolChoice(function=NamedFunction(name="get_weather"))
+
+    # Act
+    params = _to_create_params(request)
+
+    # Assert
+    assert params["tool_choice"] == {"type": "function", "function": {"name": "get_weather"}}
+
+
+def test_to_create_params_when_tools_unset_should_omit_tool_fields():
+    # Act
+    params = _to_create_params(make_chat_request())
+
+    # Assert
+    assert "tools" not in params
+    assert "tool_choice" not in params
+    assert "parallel_tool_calls" not in params
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_delta_has_tool_calls_should_relay_them():
+    # Arrange
+    chunks = [
+        make_chunk(
+            delta_content=None,
+            delta_tool_calls=[make_delta_tool_call(call_id="call_1", name="get_weather", arguments="{")],
+        ),
+        make_chunk(delta_content=None, delta_tool_calls=[make_delta_tool_call(arguments="}")]),
+    ]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=make_mock_stream(chunks))
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        # Act
+        results = [chunk async for chunk in await open_stream(make_chat_request(stream=True))]
+
+    # Assert
+    first = results[0].choices[0].delta.tool_calls
+    second = results[1].choices[0].delta.tool_calls
+    assert first is not None and second is not None
+    assert (first[0].index, first[0].id, first[0].type) == (0, "call_1", "function")
+    assert first[0].function is not None and first[0].function.name == "get_weather"
+    assert second[0].id is None
+    assert second[0].function is not None and second[0].function.arguments == "}"
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_delta_has_no_tool_calls_should_leave_them_none():
+    # Arrange
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=make_mock_stream([make_chunk()]))
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        # Act
+        results = [chunk async for chunk in await open_stream(make_chat_request(stream=True))]
+
+    # Assert
+    assert results[0].choices[0].delta.tool_calls is None
+
+
+@pytest.mark.asyncio
+async def test_handle_when_deltas_have_tool_calls_should_assemble_them_by_index():
+    # Arrange
+    chunks = [
+        make_chunk(
+            delta_content=None,
+            delta_tool_calls=[make_delta_tool_call(index=0, call_id="call_a", name="get_weather", arguments="")],
+        ),
+        make_chunk(delta_content=None, delta_tool_calls=[make_delta_tool_call(index=0, arguments='{"city":')]),
+        make_chunk(
+            delta_content=None,
+            delta_tool_calls=[make_delta_tool_call(index=1, call_id="call_b", name="get_time", arguments="{}")],
+        ),
+        make_chunk(delta_content=None, delta_tool_calls=[make_delta_tool_call(index=0, arguments='"Paris"}')]),
+        make_chunk(delta_content=None, finish_reason="tool_calls"),
+        make_usage_only_chunk(),
+    ]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=make_mock_stream(chunks))
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        # Act
+        response = await handle(make_chat_request(tools=[make_function_tool()]))
+
+    # Assert
+    choice = response.choices[0]
+    assert choice.finish_reason == "tool_calls"
+    assert choice.message.content is None
+    assert choice.message.tool_calls == [
+        make_tool_call(call_id="call_a", name="get_weather", arguments='{"city":"Paris"}'),
+        make_tool_call(call_id="call_b", name="get_time", arguments="{}"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_handle_when_no_tool_calls_should_keep_content_and_leave_tool_calls_none():
+    # Arrange
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=make_mock_stream([make_chunk(delta_content="")]))
+
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        # Act
+        response = await handle(make_chat_request())
+
+    # Assert
+    assert response.choices[0].message.content == ""
+    assert response.choices[0].message.tool_calls is None

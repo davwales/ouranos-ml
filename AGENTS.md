@@ -139,6 +139,7 @@ Behavior that isn't obvious from reading one file.
 - `open_stream()` opens the upstream before `StreamingResponse` is returned, like `/responses` and `/images`, so connection failures and upstream 4xx/5xx are HTTP statuses. Only a failure mid-stream breaks the 200.
 - Unset sampling fields (`temperature`, `top_p`, penalties, `stop`, ...) are omitted, so the backend's per-model defaults apply.
 - llama.cpp's `delta.reasoning_content` (thinking models) is relayed on stream chunks and concatenated into `message.reasoning_content` for non-streaming requests. It's `null` when the backend sends none.
+- Function tools: `tools`, `tool_choice` and `parallel_tool_calls` are forwarded. Assistant `tool_calls` and `tool` messages (with `tool_call_id`) round-trip; `RequestMessage` validates which fields each role may carry. Streamed `tool_calls` pieces are relayed with unset fields omitted, not `null`, because clients merge pieces by field (the OpenAI SDK's accumulator breaks on a `null` `type`). Non-streaming requests join pieces by `index` and return `content: null` when the model only called tools.
 
 ### Responses (`/responses`)
 - A stateless proxy to the backend's native `/v1/responses` (llama.cpp `llama-server` in router mode; Ollama also works). Only the supported subset is modeled: function tools, `text.format` `text`/`json_schema`, `reasoning`, sampling params, and message / `function_call` / `function_call_output` / `reasoning` input items. Anything else fails validation. Unknown top-level fields are ignored.
