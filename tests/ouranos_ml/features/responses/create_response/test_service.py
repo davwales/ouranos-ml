@@ -5,6 +5,7 @@ import openai
 import pytest
 
 from ouranos_ml.features.responses.create_response.schemas import (
+    ErrorEvent,
     FunctionCall,
     OutputItemEvent,
     OutputMessage,
@@ -32,6 +33,7 @@ from tests.ouranos_ml.shared.factories.responses_factories import (
     make_sdk_response,
     make_stream_event,
     make_text_stream_events,
+    make_unvalidated_stream_event,
     make_web_search_call_item,
 )
 from tests.ouranos_ml.shared.openai_mocks import make_mock_stream
@@ -380,26 +382,78 @@ async def test_open_stream_when_completed_snapshot_has_unmodeled_item_should_sti
     assert isinstance(completed.response.output[0], OutputMessage)
 
 
-@pytest.mark.asyncio
-async def test_open_stream_when_stream_fails_midway_should_log_and_propagate():
-    # Arrange
-    upstream_events = make_text_stream_events()[:3]
+def _failing_client(upstream_events: list, error: Exception) -> MagicMock:
+    """A client whose stream yields ``upstream_events`` and then raises ``error``."""
     mock_stream = make_mock_stream(upstream_events)
-    mock_stream.__aiter__.return_value = _FailingIterator(upstream_events, httpx.ReadError("connection reset"))
+    mock_stream.__aiter__.return_value = _FailingIterator(upstream_events, error)
     client = MagicMock()
     client.responses.create = AsyncMock(return_value=mock_stream)
-    received_count = 0
+    return client
 
-    # Act & Assert
-    with (
-        patch(GET_CLIENT, return_value=client),
-        patch(LOGGER) as mock_logger,
-        pytest.raises(httpx.ReadError),
-    ):
-        async for _ in await open_stream(make_create_response_request(stream=True)):
-            received_count += 1
-    assert received_count == len(upstream_events)
+
+_REQUEST = httpx.Request("POST", "http://upstream/v1/responses")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "code", "message"),
+    [
+        (httpx.ReadError("connection reset"), "server_error", "The LLM backend stream failed (ReadError)"),
+        (openai.APIError("context overflow", _REQUEST, body=None), "server_error", "context overflow"),
+        (openai.APITimeoutError(_REQUEST), "timeout", "Request timed out."),
+    ],
+)
+async def test_open_stream_when_stream_fails_midway_should_log_and_end_with_error_event(error, code, message):
+    # Arrange
+    upstream_events = make_text_stream_events()[:3]
+    client = _failing_client(upstream_events, error)
+
+    # Act
+    with patch(GET_CLIENT, return_value=client), patch(LOGGER) as mock_logger:
+        events = [event async for event in await open_stream(make_create_response_request(stream=True))]
+
+    # Assert
+    assert len(events) == len(upstream_events) + 1
+    error_event = events[-1]
+    assert isinstance(error_event, ErrorEvent)
+    assert (error_event.code, error_event.message) == (code, message)
+    assert error_event.sequence_number == upstream_events[-1].sequence_number + 1
     mock_logger.error.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_llama_cpp_stream_fails_midway_should_number_error_event_after_backfilled_ones():
+    # Arrange
+    upstream_events = make_llama_cpp_stream_events()[:4]
+    client = _failing_client(upstream_events, httpx.ReadError("connection reset"))
+
+    # Act
+    with patch(GET_CLIENT, return_value=client):
+        events = [event async for event in await open_stream(make_create_response_request(stream=True))]
+
+    # Assert
+    assert [event.sequence_number for event in events] == list(range(len(upstream_events) + 1))
+    assert events[-1].type == "error"
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_modeled_event_malformed_should_skip_it_with_warning():
+    # Arrange
+    upstream_events = make_text_stream_events()
+    malformed = make_unvalidated_stream_event("response.output_text.delta", sequence_number=4, item_id="msg_001")
+    upstream_events.insert(4, malformed)
+    client = _mock_client(events=upstream_events)
+
+    # Act
+    with patch(GET_CLIENT, return_value=client), patch(LOGGER) as mock_logger:
+        events = [event async for event in await open_stream(make_create_response_request(stream=True))]
+
+    # Assert
+    assert len(events) == len(upstream_events) - 1
+    assert events[-1].type == "response.completed"
+    mock_logger.warning.assert_called_once()
+    assert mock_logger.warning.call_args.kwargs["event_type"] == "response.output_text.delta"
+    mock_logger.error.assert_not_called()
 
 
 @pytest.mark.asyncio

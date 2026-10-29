@@ -123,7 +123,7 @@ Placement rules:
   | request validation | 422 | FastAPI default |
   | anything else (before the response starts) | 500 | `{"error": {"message", "type": "server_error", "request_id"}}`, written by `RequestLoggingMiddleware` |
 
-  The 500 is deliberately produced by the middleware, not an `Exception` handler. Starlette runs exception handlers in its outer `ServerErrorMiddleware`, after the request contextvars are cleared and outside the CORS and request-id wrappers. A failure after an SSE response has started re-raises and ends the connection.
+  The 500 is deliberately produced by the middleware, not an `Exception` handler. Starlette runs exception handlers in its outer `ServerErrorMiddleware`, after the request contextvars are cleared and outside the CORS and request-id wrappers. After an SSE response has started, `/responses` and `/images` end the stream with a final `error` event; `/chat/completions` re-raises and ends the connection.
 - **Logging levels.** `debug` at handler/service entry and on success. `info` for milestones (model loading, forecast requests, image generation requested/complete). `warning` for degraded paths. `error` with `exc_info=True` for failures, then re-raise. Log counts and ids, never message contents, prompts, or price sequences.
 - **CORS.** Fully open (`allow_origins=["*"]`, no credentials, exposes `X-Request-ID`). `CORSMiddleware` is added last, so it is outermost and wraps the middleware's JSON 500s.
 - **Style.** Ruff config is in `pyproject.toml`: line length 120, Google docstrings, double quotes. `pydantic` is configured as first-party for isort on purpose, so its imports sort after `ouranos_ml`. Leave them as they are. Python 3.12+.
@@ -144,7 +144,7 @@ Behavior that isn't obvious from reading one file.
 - A stateless proxy to the backend's native `/v1/responses` (llama.cpp `llama-server` in router mode; Ollama also works). Only the supported subset is modeled: function tools, `text.format` `text`/`json_schema`, `reasoning`, sampling params, and message / `function_call` / `function_call_output` / `reasoning` input items. Anything else fails validation. Unknown top-level fields are ignored.
 - `previous_response_id` is rejected with an OpenAI-style 400 before any upstream call, because nothing is stored.
 - Unset top-level fields are omitted. Replayed `output_text` parts are sent as `input_text`. A `json_schema` format is mirrored as a top-level `response_format` via `extra_body`, because llama-server doesn't translate `text.format`.
-- Unmodeled output items (e.g. `web_search_call`) are dropped with a warning. Unmodeled stream events, including `response.incomplete`, are skipped with a debug log.
+- Unmodeled output items (e.g. `web_search_call`) are dropped with a warning. Unmodeled stream events, including `response.incomplete`, are skipped with a debug log. A malformed event of a modeled type is skipped with a warning, leaving a gap in `sequence_number`. A mid-stream upstream failure ends the stream with an `error` event (`code` `timeout` or `server_error`).
 - `_StreamBackfill` fills fields llama-server omits (`sequence_number`, indices, opening-snapshot fields) via `setdefault`, so upstream values win. Reasoning text is relayed as `reasoning_text` (llama.cpp). Ollama sends `encrypted_content` and summary events instead.
 
 ### Embeddings (`/embeddings`)
