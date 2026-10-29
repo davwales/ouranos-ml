@@ -11,8 +11,7 @@ GET_CLIENT = "ouranos_ml.features.images.list_loras.service.get_swarmui_client"
 
 def _client(files: list[dict]) -> MagicMock:
     client = MagicMock()
-    client.new_session = AsyncMock(return_value="session-1")
-    client.call = AsyncMock(return_value={"folders": [], "files": files})
+    client.call_shared = AsyncMock(return_value={"folders": [], "files": files})
     return client
 
 
@@ -30,7 +29,7 @@ async def test_handle_when_loras_listed_should_describe_them():
         response = await handle()
 
     # Assert
-    client.call.assert_awaited_once_with("ListModels", "session-1", path="", depth=10, subtype="LoRA")
+    client.call_shared.assert_awaited_once_with("ListModels", path="", depth=10, subtype="LoRA")
     ink, plain = response.data
     assert ink.id == "styles/ink-wash"
     assert (ink.compat_class, ink.default_weight, ink.trigger_phrase) == ("flux-2-klein-9b", 0.8, "ink wash style")
@@ -60,7 +59,7 @@ async def test_handle_when_lora_format_unsupported_should_leave_it_out():
 async def test_handle_when_swarmui_unreachable_should_reraise():
     # Arrange
     client = _client([])
-    client.new_session.side_effect = SwarmUIUnavailableError("down")
+    client.call_shared.side_effect = SwarmUIUnavailableError("down")
 
     # Act & Assert
     with patch(GET_CLIENT, return_value=client), pytest.raises(SwarmUIUnavailableError):

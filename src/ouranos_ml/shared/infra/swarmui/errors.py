@@ -35,6 +35,10 @@ class SwarmUIModelNotFoundError(SwarmUIError):
     error_type = "model_not_found"
 
 
+class SwarmUIInvalidSessionError(SwarmUIError):
+    """SwarmUI no longer knows the session (it expired, or SwarmUI restarted)."""
+
+
 class SwarmUITimeoutError(SwarmUIError):
     """SwarmUI did not answer, or did not finish a generation, in time."""
 

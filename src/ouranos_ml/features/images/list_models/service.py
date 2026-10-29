@@ -18,8 +18,7 @@ async def handle() -> ListImageModelsResponse:
 
     try:
         client = get_swarmui_client()
-        session_id = await client.new_session()
-        response = await client.call("ListModels", session_id, path="", depth=_MAX_FOLDER_DEPTH)
+        response = await client.call_shared("ListModels", path="", depth=_MAX_FOLDER_DEPTH)
     except Exception:
         logger.error("image models list upstream failed", exc_info=True)
         raise

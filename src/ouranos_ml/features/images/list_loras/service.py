@@ -17,8 +17,7 @@ async def handle() -> ListImageLorasResponse:
 
     try:
         client = get_swarmui_client()
-        session_id = await client.new_session()
-        response = await client.call("ListModels", session_id, path="", depth=_MAX_FOLDER_DEPTH, subtype="LoRA")
+        response = await client.call_shared("ListModels", path="", depth=_MAX_FOLDER_DEPTH, subtype="LoRA")
     except Exception:
         logger.error("image loras list upstream failed", exc_info=True)
         raise
