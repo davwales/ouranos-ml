@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from ouranos_ml.features.chat.router import chat_router
 from ouranos_ml.shared.infra.openai.errors import register_openai_error_handler
-from tests.ouranos_ml.shared.factories.chat_factories import make_chunk
+from tests.ouranos_ml.shared.factories.chat_factories import make_chunk, make_delta_tool_call
 from tests.ouranos_ml.shared.openai_mocks import make_mock_stream
 
 
@@ -394,3 +394,68 @@ async def test_completions_endpoint_when_stream_true_with_reasoning_should_emit_
     # Assert
     assert '"reasoning_content":"Hmm."' in response.text.replace(" ", "")
     assert "reasoningContent" not in response.text
+
+
+_TOOL_CONVERSATION = {
+    "model": "test-model",
+    "messages": [
+        {"role": "user", "content": "Weather in Paris?"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{}"}}
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_1", "content": "18C"},
+    ],
+    "tools": [{"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object"}}}],
+    "tool_choice": "auto",
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_completions_endpoint_when_tool_call_returned_should_relay_it(async_client, stream):
+    # Arrange
+    chunks = [
+        make_chunk(
+            delta_content=None,
+            delta_tool_calls=[make_delta_tool_call(call_id="call_2", name="get_weather", arguments='{"city":"Nice"}')],
+        ),
+        make_chunk(delta_content=None, finish_reason="tool_calls"),
+    ]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=make_mock_stream(chunks))
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client", return_value=mock_client):
+        # Act
+        response = await async_client.post("/chat/completions", json={**_TOOL_CONVERSATION, "stream": stream})
+
+    # Assert
+    assert response.status_code == 200
+    sent = mock_client.chat.completions.create.call_args.kwargs
+    assert [m["role"] for m in sent["messages"]] == ["user", "assistant", "tool"]
+    assert sent["tool_choice"] == "auto"
+    if stream:
+        assert '"tool_calls":[{"index":0,"id":"call_2","type":"function"' in response.text
+        assert response.text.rstrip().endswith("data: [DONE]")
+    else:
+        message = response.json()["choices"][0]["message"]
+        assert message["content"] is None
+        assert message["tool_calls"] == [
+            {"id": "call_2", "type": "function", "function": {"name": "get_weather", "arguments": '{"city":"Nice"}'}}
+        ]
+
+
+@pytest.mark.asyncio
+async def test_completions_endpoint_when_tool_message_missing_tool_call_id_should_return_422(async_client):
+    # Arrange
+    payload = {"model": "test-model", "messages": [{"role": "tool", "content": "18C"}]}
+
+    # Act
+    with patch("ouranos_ml.features.chat.completions.service.get_openai_client") as mock_get_client:
+        response = await async_client.post("/chat/completions", json=payload)
+
+    # Assert
+    assert response.status_code == 422
+    mock_get_client.assert_not_called()

@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 from openai.types.chat.chat_completion_chunk import (
     ChatCompletionChunk,
     ChoiceDelta,
+    ChoiceDeltaToolCall,
+    ChoiceDeltaToolCallFunction,
 )
 from openai.types.chat.chat_completion_chunk import (
     Choice as OpenAIChunkChoice,
@@ -17,10 +19,14 @@ from ouranos_ml.features.chat.completions.schemas import (
     ChatCompletionsResponse,
     Choice,
     ChoiceMessage,
+    FunctionDefinition,
+    FunctionTool,
     JSONSchemaConfig,
     RequestMessage,
     ResponseFormat,
     ResponseFormatJSONSchema,
+    ToolCall,
+    ToolCallFunction,
     Usage,
 )
 
@@ -32,6 +38,44 @@ def make_request_message(
 ) -> RequestMessage:
     """Create a RequestMessage with sensible defaults."""
     return RequestMessage(role=role, content=content)
+
+
+def make_tool_call(
+    *,
+    call_id: str = "call_1",
+    name: str = "get_weather",
+    arguments: str = '{"city":"Paris"}',
+) -> ToolCall:
+    """Create a ToolCall with sensible defaults."""
+    return ToolCall(id=call_id, function=ToolCallFunction(name=name, arguments=arguments))
+
+
+def make_function_tool(
+    *,
+    name: str = "get_weather",
+    description: str | None = "Get the current weather for a city.",
+    parameters: dict | None = None,
+) -> FunctionTool:
+    """Create a FunctionTool with sensible defaults."""
+    if parameters is None:
+        parameters = {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}
+    return FunctionTool(function=FunctionDefinition(name=name, description=description, parameters=parameters))
+
+
+def make_delta_tool_call(
+    *,
+    index: int = 0,
+    call_id: str | None = None,
+    name: str | None = None,
+    arguments: str | None = None,
+) -> ChoiceDeltaToolCall:
+    """Create one streamed tool call piece using real openai library types."""
+    return ChoiceDeltaToolCall(
+        index=index,
+        id=call_id,
+        type="function" if call_id is not None else None,
+        function=ChoiceDeltaToolCallFunction(name=name, arguments=arguments),
+    )
 
 
 def make_json_schema_response_format(
@@ -58,6 +102,7 @@ def make_chat_request(
     temperature: float | None = None,
     max_completion_tokens: int | None = None,
     response_format: ResponseFormat | None = None,
+    tools: list[FunctionTool] | None = None,
 ) -> ChatCompletionsRequest:
     """Create a ChatCompletionsRequest with sensible defaults."""
     return ChatCompletionsRequest(
@@ -67,6 +112,7 @@ def make_chat_request(
         temperature=temperature,
         max_completion_tokens=max_completion_tokens,
         response_format=response_format,
+        tools=tools,
     )
 
 
@@ -77,6 +123,7 @@ def make_chunk(
     created: int = 1700000000,
     delta_content: str | None = "Hello",
     delta_reasoning_content: str | None = None,
+    delta_tool_calls: list[ChoiceDeltaToolCall] | None = None,
     finish_reason: str | None = None,
     system_fingerprint: str | None = "fp_abc123",
     usage: object | None = None,
@@ -89,7 +136,7 @@ def make_chunk(
     extra = {} if delta_reasoning_content is None else {"reasoning_content": delta_reasoning_content}
     choice = OpenAIChunkChoice(
         index=0,
-        delta=ChoiceDelta(content=delta_content, **extra),
+        delta=ChoiceDelta(content=delta_content, tool_calls=delta_tool_calls, **extra),
         finish_reason=finish_reason,
     )
 
