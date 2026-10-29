@@ -1,3 +1,4 @@
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,6 +10,7 @@ from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.infra.clients.swarmui_client import SwarmUIClient, get_swarmui_client
 from ouranos_ml.shared.infra.swarmui.errors import (
     SwarmUIError,
+    SwarmUIInvalidSessionError,
     SwarmUINotConfiguredError,
     SwarmUITimeoutError,
     SwarmUIUnavailableError,
@@ -122,6 +124,95 @@ async def test_call_when_timed_out_should_raise_timeout():
     # Act & Assert
     with pytest.raises(SwarmUITimeoutError):
         await client.call("ListModels", "s1")
+
+
+_INVALID_SESSION = {"error": "Invalid session ID. You may need to refresh the page.", "error_id": "invalid_session_id"}
+
+
+def _session_server(*, valid: set[str]):
+    """A SwarmUI stub issuing ``s1``, ``s2``, ... and accepting only sessions in ``valid``; returns calls made."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        route = request.url.path.removeprefix("/API/")
+        if route == "GetNewSession":
+            calls.append(route)
+            return httpx.Response(200, json={"session_id": f"s{calls.count('GetNewSession')}"})
+        session_id = json.loads(request.content)["session_id"]
+        calls.append(f"{route}:{session_id}")
+        if session_id not in valid:
+            return httpx.Response(401, json=_INVALID_SESSION)
+        return httpx.Response(200, json={"ok": True})
+
+    return calls, handler
+
+
+@pytest.mark.asyncio
+async def test_call_when_session_invalid_should_raise_invalid_session_error():
+    # Arrange
+    client = _client(lambda _: httpx.Response(401, json=_INVALID_SESSION))
+
+    # Act & Assert
+    with pytest.raises(SwarmUIInvalidSessionError, match="Invalid session ID"):
+        await client.call("ListModels", "gone")
+
+
+@pytest.mark.asyncio
+async def test_call_shared_when_called_repeatedly_should_reuse_one_session():
+    # Arrange
+    calls, handler = _session_server(valid={"s1"})
+    client = _client(handler)
+
+    # Act
+    await client.call_shared("GetCurrentStatus")
+    response = await client.call_shared("ListModels", path="")
+
+    # Assert
+    assert response == {"ok": True}
+    assert calls == ["GetNewSession", "GetCurrentStatus:s1", "ListModels:s1"]
+
+
+@pytest.mark.asyncio
+async def test_call_shared_when_called_concurrently_should_start_one_session():
+    # Arrange
+    calls, handler = _session_server(valid={"s1"})
+    client = _client(handler)
+
+    # Act
+    await asyncio.gather(*(client.call_shared("GetCurrentStatus") for _ in range(3)))
+
+    # Assert
+    assert calls.count("GetNewSession") == 1
+
+
+@pytest.mark.asyncio
+async def test_call_shared_when_session_invalidated_should_start_new_one_and_retry():
+    # Arrange
+    valid = {"s1"}
+    calls, handler = _session_server(valid=valid)
+    client = _client(handler)
+    await client.call_shared("GetCurrentStatus")
+    valid.clear()
+    valid.add("s2")
+
+    # Act
+    response = await client.call_shared("GetCurrentStatus")
+
+    # Assert
+    assert response == {"ok": True}
+    assert calls[1:] == ["GetCurrentStatus:s1", "GetCurrentStatus:s1", "GetNewSession", "GetCurrentStatus:s2"]
+
+
+@pytest.mark.asyncio
+async def test_call_shared_when_new_session_also_invalid_should_raise_after_one_retry():
+    # Arrange
+    calls, handler = _session_server(valid=set())
+    client = _client(handler)
+
+    # Act & Assert
+    with pytest.raises(SwarmUIInvalidSessionError):
+        await client.call_shared("GetCurrentStatus")
+    assert calls == ["GetNewSession", "GetCurrentStatus:s1", "GetNewSession", "GetCurrentStatus:s2"]
 
 
 @pytest.mark.asyncio

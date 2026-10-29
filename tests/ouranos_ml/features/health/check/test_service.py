@@ -204,8 +204,7 @@ async def test_check_llm_backend_when_healthy_without_prior_failure_should_not_l
 
 def _swarmui_client(backend_status: str = "running") -> MagicMock:
     client = MagicMock()
-    client.new_session = AsyncMock(return_value="session-1")
-    client.call = AsyncMock(return_value={"status": {}, "backend_status": {"status": backend_status}})
+    client.call_shared = AsyncMock(return_value={"status": {}, "backend_status": {"status": backend_status}})
     return client
 
 
@@ -235,7 +234,7 @@ async def test_check_swarmui_when_reachable_and_running_should_return_healthy_wi
     # Assert
     assert result.status == HealthStatus.HEALTHY
     assert result.data == {"backend_status": "running"}
-    client.call.assert_awaited_once_with("GetCurrentStatus", "session-1")
+    client.call_shared.assert_awaited_once_with("GetCurrentStatus")
 
 
 @pytest.mark.asyncio
@@ -260,7 +259,7 @@ async def test_check_swarmui_when_unreachable_should_return_degraded_not_unhealt
     # Arrange
     mock_settings = MagicMock(swarmui_base_url="http://swarm:7801")
     client = _swarmui_client()
-    client.new_session.side_effect = SwarmUIUnavailableError("down")
+    client.call_shared.side_effect = SwarmUIUnavailableError("down")
 
     with patch(SWARMUI_SETTINGS, return_value=mock_settings), patch(SWARMUI_CLIENT, return_value=client):
         # Act
@@ -276,7 +275,7 @@ async def test_check_swarmui_when_unreachable_should_warn_without_traceback():
     # Arrange
     mock_settings = MagicMock(swarmui_base_url="http://swarm:7801")
     client = _swarmui_client()
-    client.new_session.side_effect = SwarmUIUnavailableError("down")
+    client.call_shared.side_effect = SwarmUIUnavailableError("down")
 
     with (
         patch(SWARMUI_SETTINGS, return_value=mock_settings),
@@ -304,12 +303,12 @@ async def test_check_swarmui_when_recovering_after_failure_should_log_info():
     # Arrange
     mock_settings = MagicMock(swarmui_base_url="http://swarm:7801")
     client = _swarmui_client()
-    client.new_session.side_effect = SwarmUIUnavailableError("down")
+    client.call_shared.side_effect = SwarmUIUnavailableError("down")
 
     with patch(SWARMUI_SETTINGS, return_value=mock_settings), patch(SWARMUI_CLIENT, return_value=client):
         with capture_logs() as logs:
             await check_swarmui(timeout=5.0)
-            client.new_session.side_effect = None
+            client.call_shared.side_effect = None
 
             # Act
             await check_swarmui(timeout=5.0)

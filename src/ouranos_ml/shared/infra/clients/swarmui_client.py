@@ -1,5 +1,6 @@
 """Thin transport client for SwarmUI's native API (``/API/{route}`` POSTs and WebSocket routes)."""
 
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 from functools import lru_cache
@@ -12,6 +13,7 @@ from websockets.exceptions import ConnectionClosedError, WebSocketException
 from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.infra.swarmui.errors import (
     SwarmUIError,
+    SwarmUIInvalidSessionError,
     SwarmUINotConfiguredError,
     SwarmUITimeoutError,
     SwarmUIUnavailableError,
@@ -31,6 +33,8 @@ class SwarmUIClient:
             headers=self._headers,
             timeout=_REQUEST_TIMEOUT_SECONDS,
         )
+        self._shared_session_id: str | None = None
+        self._shared_session_lock = asyncio.Lock()
 
     async def new_session(self) -> str:
         """Start a new SwarmUI session; generations and interrupts are scoped to it."""
@@ -40,6 +44,26 @@ class SwarmUIClient:
     async def call(self, route: str, session_id: str, **body: Any) -> dict[str, Any]:
         """POST ``/API/{route}`` within a session and return the JSON reply."""
         return await self._post(route, {"session_id": session_id, **body})
+
+    async def call_shared(self, route: str, **body: Any) -> dict[str, Any]:
+        """POST ``/API/{route}`` in a session reused across calls, for routes that need no session of their own.
+
+        SwarmUI keeps sessions for a month, so polling with a new session each time would pile them up. The shared
+        session is created on first use and replaced once if SwarmUI reports it invalid. Generations still need their
+        own session, so ``InterruptAll`` cannot touch anyone else's.
+        """
+        session_id = await self._shared_session(stale=None)
+        try:
+            return await self.call(route, session_id, **body)
+        except SwarmUIInvalidSessionError:
+            return await self.call(route, await self._shared_session(stale=session_id), **body)
+
+    async def _shared_session(self, stale: str | None) -> str:
+        """Return the shared session, starting one if there is none yet or it is still the ``stale`` one."""
+        async with self._shared_session_lock:
+            if self._shared_session_id is None or self._shared_session_id == stale:
+                self._shared_session_id = await self.new_session()
+            return self._shared_session_id
 
     async def interrupt(self, session_id: str) -> None:
         """Interrupt every generation running or queued in the session."""
@@ -98,6 +122,8 @@ class SwarmUIClient:
         except ValueError:
             data = {}
         if isinstance(data, dict) and "error" in data:
+            if data.get("error_id") == "invalid_session_id":
+                raise SwarmUIInvalidSessionError(str(data["error"]))
             raise SwarmUIError(str(data["error"]))
         if response.is_error or not isinstance(data, dict):
             raise SwarmUIError(f"SwarmUI returned {response.status_code} for {route}")

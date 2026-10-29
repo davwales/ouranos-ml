@@ -72,8 +72,7 @@ async def check_swarmui(timeout: float) -> HealthCheck:
     try:
         client = get_swarmui_client()
         async with asyncio.timeout(timeout):
-            session_id = await client.new_session()
-            response = await client.call("GetCurrentStatus", session_id)
+            response = await client.call_shared("GetCurrentStatus")
     except TimeoutError:
         return HealthCheck(status=HealthStatus.DEGRADED, description=f"SwarmUI timed out after {timeout}s")
     except Exception as exc:
