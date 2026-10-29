@@ -243,3 +243,47 @@ def test_create_response_endpoint_openapi_when_generated_should_document_json_an
     # Assert
     assert response["content"]["application/json"]["schema"] == {"$ref": "#/components/schemas/ResponseObject"}
     assert "text/event-stream" in response["content"]
+
+
+class _FailingIterator:
+    """Async iterator yielding ``items`` and then raising ``error``, like a dropped upstream stream."""
+
+    def __init__(self, items: list, error: Exception) -> None:
+        self._items = iter(items)
+        self._error = error
+
+    def __aiter__(self) -> "_FailingIterator":
+        return self
+
+    async def __anext__(self) -> object:
+        try:
+            return next(self._items)
+        except StopIteration:
+            raise self._error from None
+
+
+@pytest.mark.asyncio
+async def test_create_response_endpoint_when_stream_fails_midway_should_end_with_error_event(async_client):
+    # Arrange
+    upstream_events = make_text_stream_events()[:3]
+    mock_stream = make_mock_stream(upstream_events)
+    mock_stream.__aiter__.return_value = _FailingIterator(upstream_events, httpx.ReadError("connection reset"))
+    client = MagicMock()
+    client.responses.create = AsyncMock(return_value=mock_stream)
+    payload = {"model": "test-model", "input": "Hello", "stream": True}
+
+    # Act
+    with patch(GET_CLIENT, return_value=client):
+        response = await async_client.post("/responses", json=payload)
+
+    # Assert
+    assert response.status_code == 200
+    name, data = _parse_sse(response.text)[-1]
+    assert name == "error"
+    assert json.loads(data) == {
+        "type": "error",
+        "sequence_number": 3,
+        "code": "server_error",
+        "message": "The LLM backend stream failed (ReadError)",
+        "param": None,
+    }
