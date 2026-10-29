@@ -12,6 +12,8 @@ from pathlib import PurePosixPath
 from typing import Any
 
 import structlog
+from opentelemetry import metrics, trace
+from opentelemetry.trace import Span
 
 from ouranos_ml.features.images.presets import ModelDefaults, model_id, resolve_defaults
 from ouranos_ml.features.images.schemas import (
@@ -33,6 +35,17 @@ from ouranos_ml.shared.infra.clients.swarmui_client import SwarmUIClient, get_sw
 from ouranos_ml.shared.infra.swarmui.errors import SwarmUIError, SwarmUIModelNotFoundError, SwarmUITimeoutError
 
 logger = structlog.get_logger(__name__)
+
+# SwarmUI generates over a WebSocket, which no instrumentation covers, so generations are traced and measured here.
+_tracer = trace.get_tracer(__name__)
+_meter = metrics.get_meter(__name__)
+_duration_histogram = _meter.create_histogram(
+    "image_generation.duration", unit="s", description="Time from request to the last image, or to failure"
+)
+_wait_histogram = _meter.create_histogram(
+    "image_generation.wait_duration", unit="s", description="Time until SwarmUI starts generating: queue and loading"
+)
+_image_counter = _meter.create_counter("image_generation.images", unit="{image}", description="Images generated")
 
 _RESERVED_PARAMS = frozenset({"session_id", "images"})
 _SIZE_MULTIPLE = 16
@@ -65,9 +78,16 @@ class _Generation:
     client: SwarmUIClient
     session_id: str
     model: str
+    operation: str
     payload: dict[str, Any]
     messages: AsyncGenerator[dict[str, Any]]
+    span: Span
     started: float = field(default_factory=time.monotonic)
+
+    @property
+    def metric_attributes(self) -> dict[str, str]:
+        """Low-cardinality attributes shared by every metric of this generation."""
+        return {"image.operation": self.operation, "image.model": self.model}
 
 
 async def handle(request: ImageRequest, init: InitImage | None = None) -> ImagesResponse:
@@ -108,8 +128,13 @@ async def _stream(generation: _Generation) -> AsyncGenerator[ImageGenerationEven
 
 
 async def _open(request: ImageRequest, init: InitImage | None) -> _Generation:
-    """Resolve the model, its defaults and the LoRAs, then start the generation in a fresh SwarmUI session."""
+    """Resolve the model, its defaults and the LoRAs, then start the generation in a fresh SwarmUI session.
+
+    The generation's span starts here, so the lookups nest under it, and ends when ``_generate`` finishes.
+    """
+    started = time.monotonic()
     model = request.model or get_settings().swarmui_default_model
+    operation = "edit" if init else "generate"
 
     logger.info(
         "image generation requested",
@@ -122,31 +147,48 @@ async def _open(request: ImageRequest, init: InitImage | None) -> _Generation:
         mask=bool(init and init.mask),
     )
 
+    span = _tracer.start_span(
+        "image_generation",
+        attributes={
+            "image.operation": operation,
+            "image.model": model,
+            "image.n": request.n,
+            "image.stream": bool(request.stream),
+            "image.lora_count": len(request.loras),
+        },
+    )
     try:
-        client = get_swarmui_client()
-        session_id = await client.new_session()
-        description, *lora_descriptions = await asyncio.gather(
-            _describe(client, session_id, model),
-            *(_describe(client, session_id, lora.name, subtype="LoRA") for lora in request.loras),
-        )
-        loras = [
-            _resolve_lora(lora, found, description)
-            for lora, found in zip(request.loras, lora_descriptions, strict=True)
-        ]
-        payload = _build_payload(request, model, resolve_defaults(description), loras, init)
-        messages = await client.open_generation(session_id, payload)
-    except SwarmUIModelNotFoundError as exc:
-        logger.warning("image model not found", model=model, error=exc.message)
+        with trace.use_span(span):
+            client = get_swarmui_client()
+            session_id = await client.new_session()
+            description, *lora_descriptions = await asyncio.gather(
+                _describe(client, session_id, model),
+                *(_describe(client, session_id, lora.name, subtype="LoRA") for lora in request.loras),
+            )
+            loras = [
+                _resolve_lora(lora, found, description)
+                for lora, found in zip(request.loras, lora_descriptions, strict=True)
+            ]
+            payload = _build_payload(request, model, resolve_defaults(description), loras, init)
+            messages = await client.open_generation(session_id, payload)
+    except BaseException as exc:
+        span.end()
+        if isinstance(exc, SwarmUIModelNotFoundError):
+            logger.warning("image model not found", model=model, error=exc.message)
+        elif isinstance(exc, Exception):
+            logger.error("image generation upstream failed", model=model, exc_info=True)
         raise
-    except Exception:
-        logger.error("image generation upstream failed", model=model, exc_info=True)
-        raise
+
+    span.set_attribute("image.model", model_id(description["name"]))
     return _Generation(
         client=client,
         session_id=session_id,
         model=model_id(description["name"]),
+        operation=operation,
         payload=payload,
         messages=messages,
+        span=span,
+        started=started,
     )
 
 
@@ -255,6 +297,7 @@ async def _generate(generation: _Generation, translator: "_Translator") -> Async
     timeout = get_settings().swarmui_generation_timeout_seconds
     deadline = asyncio.get_running_loop().time() + timeout
     completed = False
+    error: BaseException | None = None
 
     try:
         async with aclosing(generation.messages) as messages:
@@ -282,12 +325,37 @@ async def _generate(generation: _Generation, translator: "_Translator") -> Async
         )
 
         yield done
-    except SwarmUIError:
-        logger.error("image generation failed", model=generation.model, exc_info=True)
+    except BaseException as exc:
+        error = exc
+        if isinstance(exc, SwarmUIError):
+            logger.error("image generation failed", model=generation.model, exc_info=True)
         raise
     finally:
         if not completed:
             _interrupt_in_background(generation)
+        _finish_telemetry(generation, translator.count, completed, error)
+
+
+def _finish_telemetry(generation: _Generation, count: int, completed: bool, error: BaseException | None) -> None:
+    """Record the generation's outcome on its span and metrics, then end the span.
+
+    A generation that stopped without an error of its own (client disconnect, cancellation) is ``interrupted``.
+    """
+    if completed:
+        outcome = "completed"
+    elif isinstance(error, Exception):
+        outcome = "failed"
+        generation.span.record_exception(error)
+        generation.span.set_status(trace.StatusCode.ERROR, f"{type(error).__name__}: {error}")
+    else:
+        outcome = "interrupted"
+    generation.span.set_attributes({"image.outcome": outcome, "image.count": count})
+    generation.span.end()
+    _duration_histogram.record(
+        time.monotonic() - generation.started, {**generation.metric_attributes, "image.outcome": outcome}
+    )
+    if count:
+        _image_counter.add(count, generation.metric_attributes)
 
 
 def _interrupt_in_background(generation: _Generation) -> None:
@@ -314,6 +382,8 @@ class _Translator:
         self._stage: str | None = None
         self._percents: dict[int, float] = {}
         self._count = 0
+        self._loaded_model = False
+        self._generating = False
 
         try:
             batch_size = max(1, int(generation.payload.get("batchsize", 1)))
@@ -321,6 +391,11 @@ class _Translator:
             batch_size = 1
 
         self._expected = generation.payload["images"] * batch_size
+
+    @property
+    def count(self) -> int:
+        """Images completed so far."""
+        return self._count
 
     def next_sequence(self) -> int:
         """Claim the next sequence number."""
@@ -363,6 +438,10 @@ class _Translator:
             return []
 
         self._stage = stage
+        self._generation.span.add_event(stage)
+        self._loaded_model |= stage == "loading_model"
+        if stage == "generating":
+            self._mark_generating()
         return [
             StatusEvent(
                 sequence_number=self.next_sequence(),
@@ -383,6 +462,7 @@ class _Translator:
         if index < 0:
             return []
 
+        self._mark_generating()
         percent = max(self._percents.get(index, 0.0), float(progress.get("overall_percent", 0.0)))
         self._percents[index] = percent
         preview = progress.get("preview")
@@ -404,6 +484,7 @@ class _Translator:
         if index < 0:
             return []
 
+        self._mark_generating()
         b64_json, output_format = await self._inline(message["image"])
         params = _image_params(message.get("metadata"))
         width = params.get("width", self._generation.payload.get("width"))
@@ -431,6 +512,16 @@ class _Translator:
 
         content = await self._generation.client.fetch_file(image)
         return base64.b64encode(content).decode("ascii"), PurePosixPath(image).suffix.lstrip(".").lower() or "png"
+
+    def _mark_generating(self) -> None:
+        """Record the wait for SwarmUI to start, once (a fast generation may skip the ``generating`` status)."""
+        if self._generating:
+            return
+        self._generating = True
+        _wait_histogram.record(
+            time.monotonic() - self._generation.started,
+            {**self._generation.metric_attributes, "image.model_loaded": self._loaded_model},
+        )
 
     def _total_percent(self) -> float:
         """Progress across every image, from 0 to 1."""

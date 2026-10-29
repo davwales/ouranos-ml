@@ -186,6 +186,7 @@ Behavior that isn't obvious from reading one file.
   - `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` is **required**. Without it the SDK picks the gRPC exporter, which isn't installed, and instrumentation silently does nothing. The Dockerfile bakes it in.
   - `/health` is excluded from server spans, and the Loki push URL from httpx spans. Without the second exclusion, every flush would create a root span.
   - W3C `traceparent` joins pantheon's traces automatically. LLM calls get `gen_ai.*` spans and token metrics from genai-openai.
+  - Manual telemetry covers what no instrumentation sees. Each image generation gets an `image_generation` span (started in `_open`, so the SwarmUI lookups nest under it, and ended when `_generate` finishes), with stage changes as span events and `image.outcome` `completed`/`failed`/`interrupted`. Metrics: `image_generation.duration`, `image_generation.wait_duration` (queue plus model load, with `image.model_loaded`) and `image_generation.images`, keyed by `image.operation` and the resolved `image.model`. Plutus has `plutus.forecast` and `plutus.load_model` spans. The OTel API is a no-op without the SDK, so tests patch the module's `_tracer` (see `tests/ouranos_ml/shared/otel_mocks.py`).
   - Logs never go through OTel. Loki carries them, with the trace keys.
 
 ---

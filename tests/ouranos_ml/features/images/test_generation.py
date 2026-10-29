@@ -1,9 +1,12 @@
 import asyncio
 import base64
 from contextlib import aclosing
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from opentelemetry import trace
+from opentelemetry.trace import StatusCode
 
 from ouranos_ml.features.images import generation
 from ouranos_ml.features.images.generation import InitImage, handle, open_stream
@@ -27,6 +30,7 @@ from tests.ouranos_ml.shared.factories.images_factories import (
     make_swarm_status,
     make_swarmui_client,
 )
+from tests.ouranos_ml.shared.otel_mocks import make_recording_tracer
 
 GET_CLIENT = "ouranos_ml.features.images.generation.get_swarmui_client"
 GET_SETTINGS = "ouranos_ml.features.images.generation.get_settings"
@@ -611,3 +615,150 @@ async def test_handle_when_init_image_and_size_given_should_prefer_explicit_size
     # Assert
     assert (_sent_payload(explicit_client)["width"], _sent_payload(explicit_client)["height"]) == (512, 512)
     assert (_sent_payload(params_client)["width"], _sent_payload(params_client)["height"]) == (640, 640)
+
+
+@pytest.fixture
+def telemetry():
+    """Record the generation spans in memory and mock the metric instruments."""
+    tracer, spans = make_recording_tracer()
+    with (
+        patch.object(generation, "_tracer", tracer),
+        patch.object(generation, "_duration_histogram") as duration,
+        patch.object(generation, "_wait_histogram") as wait,
+        patch.object(generation, "_image_counter") as images,
+    ):
+        yield SimpleNamespace(spans=spans, duration=duration, wait=wait, images=images)
+
+
+_ATTRIBUTES = {"image.operation": "generate", "image.model": "flux-2-klein-9b"}
+
+
+@pytest.mark.asyncio
+async def test_handle_when_generation_succeeds_should_record_span_and_metrics(telemetry):
+    # Arrange
+    client = make_swarmui_client(messages=make_swarm_messages(n=2))
+    request = make_generate_images_request(n=2)
+
+    # Act
+    with patch(GET_CLIENT, return_value=client), patch(GET_SETTINGS, return_value=_settings()):
+        await handle(request)
+
+    # Assert
+    (span,) = telemetry.spans.get_finished_spans()
+    assert span.name == "image_generation"
+    assert span.attributes["image.model"] == "flux-2-klein-9b"
+    assert (span.attributes["image.outcome"], span.attributes["image.count"], span.attributes["image.n"]) == (
+        "completed",
+        2,
+        2,
+    )
+    assert [event.name for event in span.events] == ["queued", "loading_model", "generating"]
+    assert span.status.status_code == StatusCode.UNSET
+    telemetry.duration.record.assert_called_once()
+    assert telemetry.duration.record.call_args.args[1] == {**_ATTRIBUTES, "image.outcome": "completed"}
+    telemetry.wait.record.assert_called_once()
+    assert telemetry.wait.record.call_args.args[1] == {**_ATTRIBUTES, "image.model_loaded": True}
+    telemetry.images.add.assert_called_once_with(2, _ATTRIBUTES)
+
+
+@pytest.mark.asyncio
+async def test_handle_when_init_image_given_should_record_edit_operation(telemetry):
+    # Arrange
+    client = make_swarmui_client()
+    init = InitImage(image=PNG_B64, width=1024, height=1024)
+
+    # Act
+    with patch(GET_CLIENT, return_value=client), patch(GET_SETTINGS, return_value=_settings()):
+        await handle(make_generate_images_request(), init)
+
+    # Assert
+    (span,) = telemetry.spans.get_finished_spans()
+    assert span.attributes["image.operation"] == "edit"
+    telemetry.images.add.assert_called_once_with(1, {**_ATTRIBUTES, "image.operation": "edit"})
+
+
+@pytest.mark.asyncio
+async def test_open_when_swarmui_called_should_make_lookups_children_of_generation_span(telemetry):
+    # Arrange
+    client = make_swarmui_client()
+    current_spans = []
+    client.new_session.side_effect = lambda: current_spans.append(trace.get_current_span()) or "session-1"
+
+    # Act
+    await _collect(make_generate_images_request(stream=True), client)
+
+    # Assert
+    (span,) = telemetry.spans.get_finished_spans()
+    assert current_spans[0].get_span_context().span_id == span.context.span_id
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_swarmui_reports_error_should_record_failed_span(telemetry):
+    # Arrange
+    client = make_swarmui_client(messages=[make_swarm_error("bad sampler")])
+
+    # Act
+    await _collect(make_generate_images_request(stream=True), client)
+    await _drain_interrupts()
+
+    # Assert
+    (span,) = telemetry.spans.get_finished_spans()
+    assert span.attributes["image.outcome"] == "failed"
+    assert span.status.status_code == StatusCode.ERROR
+    assert span.events[-1].name == "exception"
+    assert telemetry.duration.record.call_args.args[1]["image.outcome"] == "failed"
+    telemetry.images.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_caller_stops_early_should_record_interrupted_span(telemetry):
+    # Arrange
+    client = make_swarmui_client(messages=make_swarm_messages(n=4))
+
+    # Act
+    with patch(GET_CLIENT, return_value=client), patch(GET_SETTINGS, return_value=_settings()):
+        events = await open_stream(make_generate_images_request(stream=True, n=4))
+        async with aclosing(events):
+            await anext(events)
+    await _drain_interrupts()
+
+    # Assert
+    (span,) = telemetry.spans.get_finished_spans()
+    assert span.attributes["image.outcome"] == "interrupted"
+    assert span.status.status_code == StatusCode.UNSET
+    assert telemetry.duration.record.call_args.args[1]["image.outcome"] == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_open_stream_when_no_generating_status_should_record_wait_at_first_progress(telemetry):
+    # Arrange
+    messages = [make_swarm_progress(overall_percent=0.5), make_swarm_image()]
+    client = make_swarmui_client(messages=messages)
+
+    # Act
+    await _collect(make_generate_images_request(stream=True), client)
+
+    # Assert
+    telemetry.wait.record.assert_called_once()
+    assert telemetry.wait.record.call_args.args[1]["image.model_loaded"] is False
+
+
+@pytest.mark.asyncio
+async def test_handle_when_model_not_found_should_end_span_with_error_and_record_no_metrics(telemetry):
+    # Arrange
+    client = make_swarmui_client()
+    client.call.side_effect = SwarmUIError("Model not found.")
+
+    # Act
+    with (
+        patch(GET_CLIENT, return_value=client),
+        patch(GET_SETTINGS, return_value=_settings()),
+        pytest.raises(SwarmUIModelNotFoundError),
+    ):
+        await handle(make_generate_images_request(model="nope"))
+
+    # Assert
+    (span,) = telemetry.spans.get_finished_spans()
+    assert span.status.status_code == StatusCode.ERROR
+    assert span.attributes["image.model"] == "nope"
+    telemetry.duration.record.assert_not_called()

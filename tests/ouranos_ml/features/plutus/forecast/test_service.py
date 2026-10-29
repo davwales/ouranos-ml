@@ -13,6 +13,9 @@ from ouranos_ml.features.plutus.forecast.service import (
 )
 from ouranos_ml.shared.domain.plutus.forecast_point import PlutusForecastPoint
 from tests.ouranos_ml.shared.factories.forecast_factories import make_forecast_point, make_sequence
+from tests.ouranos_ml.shared.otel_mocks import make_recording_tracer
+
+SERVICE = "ouranos_ml.features.plutus.forecast.service"
 
 
 def _generator_with_mock_harness(mock_harness: MagicMock) -> ForecastGenerator:
@@ -243,3 +246,36 @@ def testget_forecast_generator_when_called_twice_should_return_same_instance():
     assert first is second
 
     get_forecast_generator.cache_clear()
+
+
+def test_forecast_points_when_called_should_record_forecast_span():
+    # Arrange
+    tracer, spans = make_recording_tracer()
+    mock_generator = MagicMock(spec=ForecastGenerator)
+    mock_generator.predict_next.return_value = [make_forecast_point(), make_forecast_point()]
+
+    # Act
+    with patch(f"{SERVICE}._tracer", tracer), patch(f"{SERVICE}.get_forecast_generator", return_value=mock_generator):
+        forecast_points([make_sequence(30), make_sequence(30)], 3)
+
+    # Assert
+    (span,) = spans.get_finished_spans()
+    assert span.name == "plutus.forecast"
+    assert dict(span.attributes) == {"plutus.sequence_count": 2, "plutus.num_predictions": 3}
+
+
+def test_get_forecast_generator_when_loading_should_record_load_span_once():
+    # Arrange
+    tracer, spans = make_recording_tracer()
+    get_forecast_generator.cache_clear()
+
+    # Act
+    with patch(f"{SERVICE}._tracer", tracer), patch(f"{SERVICE}.ForecastGenerator"):
+        get_forecast_generator()
+        get_forecast_generator()
+    get_forecast_generator.cache_clear()
+
+    # Assert
+    (span,) = spans.get_finished_spans()
+    assert span.name == "plutus.load_model"
+    assert span.attributes["plutus.model"] == "plutus-forecasting-v1"

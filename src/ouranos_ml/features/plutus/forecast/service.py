@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import structlog
 import torch
+from opentelemetry import trace
 
 from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.domain.plutus.forecast_point import PlutusForecastPoint
@@ -12,6 +13,7 @@ from ouranos_ml.shared.inference.harness import Harness
 from ouranos_ml.shared.inference.model import Model
 
 logger = structlog.get_logger(__name__)
+_tracer = trace.get_tracer(__name__)
 
 _DEFAULT_FEATURE_FIELDS = ["average_price", "min_price", "max_price", "volume"]
 _DEFAULT_SEQUENCE_LENGTH = 30
@@ -96,7 +98,10 @@ def get_forecast_generator() -> ForecastGenerator:
     The trained artifact is loaded on the first forecast request or health probe; a failed load is not cached,
     so the next call retries. Restart the service to pick up a retrained model.
     """
-    return ForecastGenerator()
+    with _tracer.start_as_current_span(
+        "plutus.load_model", attributes={"plutus.model": get_settings().plutus_forecast_model_name}
+    ):
+        return ForecastGenerator()
 
 
 def forecast_points(
@@ -104,16 +109,18 @@ def forecast_points(
 ) -> list[list[PlutusForecastPoint]]:
     """Forecast future points for multiple sequences based on historical data."""
     logger.info("forecast requested", sequence_count=len(sequences), num_predictions=num_predictions)
-    generator = get_forecast_generator()
-    all_predictions: list[list[PlutusForecastPoint]] = [[] for _ in sequences]
-    current_sequences = [seq.copy() for seq in sequences]
+    attributes = {"plutus.sequence_count": len(sequences), "plutus.num_predictions": num_predictions}
+    with _tracer.start_as_current_span("plutus.forecast", attributes=attributes):
+        generator = get_forecast_generator()
+        all_predictions: list[list[PlutusForecastPoint]] = [[] for _ in sequences]
+        current_sequences = [seq.copy() for seq in sequences]
 
-    for _ in range(num_predictions):
-        next_points = generator.predict_next(current_sequences)
-        for i, (next_point, sequence) in enumerate(zip(next_points, current_sequences, strict=True)):
-            sequence.append(next_point)
-            sequence.pop(0)
-            all_predictions[i].append(next_point)
+        for _ in range(num_predictions):
+            next_points = generator.predict_next(current_sequences)
+            for i, (next_point, sequence) in enumerate(zip(next_points, current_sequences, strict=True)):
+                sequence.append(next_point)
+                sequence.pop(0)
+                all_predictions[i].append(next_point)
 
     logger.debug(
         "forecast complete",
