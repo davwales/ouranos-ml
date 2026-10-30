@@ -1,27 +1,10 @@
+# Local telemetry: Grafana with Loki (logs), Tempo (traces) and Prometheus (metrics) in one container.
+# Run the app from source against it with `uv run --env-file telemetry.env opentelemetry-instrument ouranos_ml`.
+# Production runs from deploy/ouranos-ml.container instead.
 services:
-  ouranos-ml:
-    image: ghcr.io/davwales/ouranos-ml:latest
+  lgtm:
+    image: docker.io/grafana/otel-lgtm:0.38.1
     ports:
-      - "8000:8000"
-    environment:
-      LLM_OPENAI_BASE_URL: http://host.docker.internal:11434/v1
-      SWARMUI_BASE_URL: http://host.docker.internal:7801
-      LOG_LEVEL: INFO
-      LOKI_BASE_URL: http://ouranos.local:3100
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://ouranos.local:4318
-      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
-      OTEL_SERVICE_NAME: ouranos-ml
-      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=Production
-      OTEL_TRACES_SAMPLER: parentbased_traceidratio
-      OTEL_TRACES_SAMPLER_ARG: "1.0"
-      OTEL_TRACES_EXPORTER: otlp
-      OTEL_METRICS_EXPORTER: otlp
-      OTEL_PYTHON_FASTAPI_EXCLUDED_URLS: health
-      OTEL_PYTHON_HTTPX_EXCLUDED_URLS: ".*loki/api/v1/push.*"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      - "3001:3000" # Grafana (admin/admin); 3000 is often taken by pantheon's interface
+      - "3100:3100" # Loki push API (LOKI_BASE_URL)
+      - "4318:4318" # OTLP/HTTP (OTEL_EXPORTER_OTLP_ENDPOINT)

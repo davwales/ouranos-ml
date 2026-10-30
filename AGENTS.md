@@ -184,7 +184,7 @@ Behavior that isn't obvious from reading one file.
 - **Sinks.** Without `LOKI_BASE_URL`: a pretty console at `LOG_LEVEL`. With it: a JSON console at WARNING, plus every record pushed to Loki by `LokiPushHandler` (a background thread with batching and one retry, then the batch is dropped; it never blocks requests). Loki labels are `app` (`LOG_APP_NAME`) and `level`. In Grafana, query `{app="Ouranos.Ml"}`.
 - **TraceId.** JSON is rendered compactly (`separators=(",", ":")`). That's required: Grafana's derived field regex `"TraceId":"([0-9a-f]{32})"` links log lines to Tempo. `TraceId`/`SpanId` are added only while a recording span exists.
 - **Request logging.** `RequestLoggingMiddleware` (pure ASGI, SSE-safe) binds a `request_id` to every log line in the request, using a valid incoming `X-Request-ID` (`[A-Za-z0-9._-]{1,128}`) or else a new uuid4 hex. It echoes the id as `x-request-id`, exposes it as `request.state.request_id`, and logs one `request completed` line (or `request failed` with a traceback). `/health` skips only the completion line.
-- **OpenTelemetry.** It's zero-code: the container runs `opentelemetry-instrument ouranos_ml`, and the installed instrumentations (fastapi, httpx, system-metrics, genai-openai) are configured from `OTEL_*` env vars. Plain `uv run start` and pytest have no OTel.
+- **OpenTelemetry.** It's zero-code: the container runs `opentelemetry-instrument ouranos_ml`, and the installed instrumentations (fastapi, httpx, system-metrics, genai-openai) are configured from `OTEL_*` env vars. Plain `uv run start` and pytest have no OTel. To see logs and traces locally, run `podman compose up -d` and then `uv run --env-file telemetry.env opentelemetry-instrument ouranos_ml` (README, "Local telemetry").
   - `OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf` is **required**. Without it the SDK picks the gRPC exporter, which isn't installed, and instrumentation silently does nothing. The Dockerfile bakes it in.
   - `/health` is excluded from server spans, and the Loki push URL from httpx spans. Without the second exclusion, every flush would create a root span.
   - W3C `traceparent` joins pantheon's traces automatically. LLM calls get `gen_ai.*` spans and token metrics from genai-openai.
@@ -230,11 +230,13 @@ Tests mirror `src/` under `tests/`. Every operation gets up to three files in `t
 - **Dockerfile.** Base image `python:3.12.*-slim-trixie` (keep it on `.python-version`'s minor), uv copied from a named stage. No CUDA or PyTorch base, since that would duplicate the venv's CUDA libraries. `NVIDIA_VISIBLE_DEVICES`/`NVIDIA_DRIVER_CAPABILITIES` are set, as CUDA base images do, so the NVIDIA runtime mounts the driver.
   - Deps are synced first (keyed on `pyproject.toml` + `uv.lock`), then `README.md`, `models/` and `src/` are copied as separate layers, so a code change rebuilds only the small trailing layers.
   - The venv is first on `PATH`.
-  - `HEALTHCHECK` probes `/health` with the venv's Python, since the image has no curl. A 503 marks the container unhealthy.
+  - `HEALTHCHECK` probes `/health` with the venv's Python, since the image has no curl. A 503 marks the container unhealthy. The published image is OCI, which drops `HEALTHCHECK`, so the quadlet repeats it as `HealthCmd`. Keep the two in sync.
   - CMD is `opentelemetry-instrument ouranos_ml`.
-- **Compose.**
-  - `compose.yml` runs the published `ghcr.io/davwales/ouranos-ml:latest` with GPU access and the production env (LLM/SwarmUI on `host.docker.internal`, Loki and OTLP on `ouranos.local`).
-  - `compose.override.yml` adds Podman CDI GPU passthrough and disables SELinux labels for Fedora. Compose merges it automatically.
+- **Deploy.** `deploy/ouranos-ml.container` is a rootless Podman quadlet that runs `:latest` with the production env (LLM/SwarmUI on `host.containers.internal`, Loki and OTLP on `ouranos.local`), CDI GPU passthrough and SELinux labels disabled (Fedora).
+  - `AutoUpdate=registry` plus `podman-auto-update.timer` deploys new `:latest` images.
+  - `Notify=healthy` makes the unit active only once `/health` returns 2xx, so an update that never turns healthy within `TimeoutStartSec` rolls back. The same applies when the LLM backend is down during an update, since that makes `/health` 503.
+  - The install steps are in the README.
+- **Compose.** `compose.yml` only runs local telemetry (`grafana/otel-lgtm`, Grafana on 3001). No compose file runs the app image.
 - **CI** (`.github/workflows/ci.yml`, on pushes to `main` and every PR):
   - `lint`: ruff + ty.
   - `test`: pytest with coverage, plus an OTel bootstrap smoke test, because a broken bootstrap fails silently.
@@ -248,7 +250,7 @@ Tests mirror `src/` under `tests/`. Every operation gets up to three files in `t
   - `main` only accepts PRs, so CI can't push bump commits. To release, run `uv run cz bump` on a branch off `main`, delete the local tag it creates (`git tag -d v<version>`), push the branch, and merge the PR. The `release` job then tags `main`'s tip.
   - `release` tags `main`'s tip, not the bump commit, because `GITHUB_TOKEN` can't create a tag on a commit whose workflow files differ from `main`'s. Commits that reach `main` between the bump and its merge are missing from that release's changelog, so re-run `cz bump` if `main` moved.
   - `cz bump` updates the version in `pyproject.toml` and `uv.lock` and prepends the release to `CHANGELOG.md`.
-  - Roll back by pointing `compose.yml` at a `:<version>` or `:sha-<sha>` tag.
+  - Roll back by pointing the installed quadlet's `Image=` at a `:<version>` or `:sha-<sha>` tag.
 - **Dependabot** sends weekly grouped updates. Patch/minor updates for uv and Actions auto-merge once checks pass; majors, Docker and torch minors need a manual merge. Details are in `AGENTS.local.md`.
 
 ---

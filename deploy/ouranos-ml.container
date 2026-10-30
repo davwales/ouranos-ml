@@ -1,0 +1,51 @@
+# Production deployment: a rootless Podman quadlet. README.md ("Deployment") covers install, updates and rollback.
+
+[Unit]
+Description=Ouranos ML
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=ouranos-ml
+# podman-auto-update.timer pulls this tag and restarts the unit, rolling back if the new image never turns healthy.
+# Pin a :<version> or :sha-<sha> tag to roll back by hand.
+Image=ghcr.io/davwales/ouranos-ml:latest
+AutoUpdate=registry
+PublishPort=8000:8000
+
+# Rootless GPU passthrough via CDI (/etc/cdi/nvidia.yaml). SELinux labels the NVIDIA device nodes so that
+# container_t can't open them, which makes NVML fail with "Insufficient Permissions".
+AddDevice=nvidia.com/gpu=all
+SecurityLabelDisable=true
+
+Environment=LLM_OPENAI_BASE_URL=http://host.containers.internal:11434/v1
+Environment=SWARMUI_BASE_URL=http://host.containers.internal:7801
+Environment=LOG_LEVEL=INFO
+Environment=LOKI_BASE_URL=http://ouranos.local:3100
+Environment=OTEL_EXPORTER_OTLP_ENDPOINT=http://ouranos.local:4318
+Environment=OTEL_SERVICE_NAME=ouranos-ml
+Environment=OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=Production
+Environment=OTEL_TRACES_SAMPLER=parentbased_traceidratio
+Environment=OTEL_TRACES_SAMPLER_ARG=1.0
+Environment=OTEL_TRACES_EXPORTER=otlp
+Environment=OTEL_METRICS_EXPORTER=otlp
+Environment=OTEL_PYTHON_FASTAPI_EXCLUDED_URLS=health
+Environment=OTEL_PYTHON_HTTPX_EXCLUDED_URLS=.*loki/api/v1/push.*
+
+# The published image is OCI, which has no field for the Dockerfile's HEALTHCHECK, so the check is declared here.
+# Notify=healthy holds the unit in "activating" until /health returns 2xx, which is what auto-update's rollback
+# watches.
+HealthCmd=/app/.venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=8)"
+HealthInterval=30s
+HealthTimeout=10s
+HealthStartPeriod=60s
+HealthRetries=3
+HealthStartupInterval=5s
+Notify=healthy
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
