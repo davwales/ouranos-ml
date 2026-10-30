@@ -90,15 +90,21 @@ OpenTelemetry tracing and metrics are configured with the standard `OTEL_*` envi
 
 ### Running an experiment
 
-1. Create your experiment within the `src/experiments` directory.
-2. Add your experiment to the list of experiments in `src/experiments/main.py`.
+1. Create your experiment within the `src/experiments` directory, declaring its options in `add_arguments`.
+2. Add your experiment class to `EXPERIMENTS` in `src/experiments/main.py`.
 3. Execute your experiment. Experiment-only dependencies (pandas, matplotlib, scikit-learn) live in the `experiments` dependency group, which `uv sync` and the Docker image leave out.
 
 ```bash
-uv run --group experiments experiment {your_experiment_name}
+uv run --group experiments experiment {your_experiment_name} [options]
 ```
 
-Alternatively, install every group once with `uv sync --all-groups` and run `uv run experiment {your_experiment_name}`.
+Alternatively, install every group once with `uv sync --all-groups` and run `uv run experiment {your_experiment_name}`. `uv run experiment {your_experiment_name} --help` lists the experiment's options. For example, a quick development run of the forecasting model on 50 symbols that writes to a scratch directory instead of over the served model:
+
+```bash
+uv run experiment plutus_forecasting --symbol-limit 50 --epochs 20 --output-dir /tmp/plutus-scratch
+```
+
+Add `--no-retune` to skip the genetic tuner and reuse the `tuned_params.json` already in the output directory.
 
 ## Contributing
 
