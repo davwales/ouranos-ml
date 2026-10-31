@@ -164,7 +164,7 @@ Behavior that isn't obvious from reading one file.
 - SwarmUI reports most errors as HTTP 200 with `{"error": ...}`. Invalid `params` values only fail mid-generation (502 / `error` event).
 
 ### Plutus (`/plutus/forecast`)
-- Each sequence must have exactly `sequence_length` points, otherwise you get a 422 with one `value_error` per bad sequence at `["body", "points", i]`. `sequence_length` comes from `params.json` and falls back to 30 in code; the committed artifact relies on the fallback. Requests take 1–100 sequences.
+- Each sequence must have exactly `sequence_length` points, otherwise you get a 422 with one `value_error` per bad sequence at `["body", "points", i]`. `sequence_length` comes from `params.json` and falls back to 30 in code; the committed artifact relies on the fallback. Requests take 1–1000 sequences, above pantheon's default batch of 500.
 - Values are max-scaled per sequence and feature, with a `1e-8` floor. That floor must match the experiment's `sequence_transform`. Predictions are autoregressive over a sliding window and are mapped back to `PlutusForecastPoint` by `feature_fields`.
 - Shape fields (`sequence_length`, `feature_fields`, `input_size`, `output_size`, `prediction_horizon`) have legacy fallbacks. `hidden_size`, `num_layers` and `dropout` are required.
 - `get_forecast_generator()` caches per process. A failed load isn't cached and retries. A retrained model needs a restart.
