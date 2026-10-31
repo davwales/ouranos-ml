@@ -13,7 +13,7 @@ Guide for AI coding agents working in `ouranos-ml`: a FastAPI service that gives
 uv sync --all-groups          # Install everything (dev, linting, test, experiments); do this before running tests
 uv run start                  # Run the API server (also: uv run ouranos_ml)
 uv run dev                    # Dev server on 127.0.0.1, reloads on src/ changes
-uv run experiment <name> ...  # Run registered experiments (needs the experiments group)
+uv run experiment <name> [options]  # Run an experiment; --help lists its options (needs the experiments group)
 uv run pytest                 # Run all tests
 uv run pytest --cov=ouranos_ml --cov-report=term-missing --cov-fail-under=80   # What CI runs
 uv run ruff check             # Lint
@@ -29,7 +29,7 @@ uv run cz bump                # Cut a release: bump the version from commit mess
 ## 2. Layout
 
 - **`src/ouranos_ml/`**: the API service. `main.py` mounts one router per domain; features live under `features/`, cross-feature code under `shared/`.
-- **`src/experiments/`**: model training. An experiment subclasses `BaseExperiment` (an ABC), sets `NAME`, implements `run()`, and is registered by instantiating it in the list in `src/experiments/main.py`. Training reuses `Model`/`TrainingHarness` from `ouranos_ml.shared.inference`.
+- **`src/experiments/`**: model training. An experiment subclasses `BaseExperiment` (an ABC), sets `NAME`, implements `add_arguments()` and `run()`, and is registered by adding its class to `EXPERIMENTS` in `src/experiments/main.py`. Each experiment is an argparse subcommand, and parsed options are passed to its `__init__` as keyword arguments. Training reuses `Model`/`TrainingHarness` from `ouranos_ml.shared.inference`.
 - **`models/`** (repo root): trained artifacts, one versioned directory per model (e.g. `models/plutus-forecasting-v1/` with `model.pth` and `params.json`). Selected by the `MODELS_DIR` and `PLUTUS_FORECAST_MODEL_NAME` settings.
 
 Seven domains, ten operations:
@@ -219,7 +219,7 @@ Tests mirror `src/` under `tests/`. Every operation gets up to three files in `t
   - Feature test directories have no `__init__.py`.
   - `tests/`, `tests/ouranos_ml/`, `tests/ouranos_ml/shared/` and `factories/` do have one, so factories import as `tests.ouranos_ml.shared.factories....`.
 - **Lint rules.** Test files are exempt from `D103` and `ANN`. Factories, mocks and conftests aren't, and need docstrings and type hints.
-- **Coverage.** It covers `src/ouranos_ml` with an 80% floor; experiments aren't measured. All tests are fully mocked. If one ever needs real I/O, add a `slow` marker and exclude it from CI.
+- **Coverage.** It covers `src/ouranos_ml` with an 80% floor; experiments aren't measured. `tests/experiments/plutus_forecasting/test_experiment.py` instead smoke-tests the pipeline on a synthetic CSV and loads the artifact with the service's `ForecastGenerator`. Everything else is fully mocked. If one ever needs real I/O, add a `slow` marker and exclude it from CI.
 
 ---
 
