@@ -92,7 +92,7 @@ OpenTelemetry tracing and metrics are configured with the standard `OTEL_*` envi
 
 1. Create your experiment within the `src/experiments` directory, declaring its options in `add_arguments`.
 2. Add your experiment class to `EXPERIMENTS` in `src/experiments/main.py`.
-3. Execute your experiment. Experiment-only dependencies (pandas, matplotlib, scikit-learn) live in the `experiments` dependency group, which `uv sync` and the Docker image leave out.
+3. Execute your experiment. Experiment-only dependencies (polars, matplotlib, scikit-learn) live in the `experiments` dependency group, which `uv sync` and the Docker image leave out.
 
 ```bash
 uv run --group experiments experiment {your_experiment_name} [options]
