@@ -29,7 +29,7 @@ updates:
         patterns: [fastapi, starlette, pydantic, "pydantic-*", uvicorn, httpx, websockets]
         update-types: [minor, patch]
       scientific:
-        patterns: [numpy, pandas, scikit-learn, matplotlib]
+        patterns: [numpy, polars, scikit-learn, matplotlib]
         update-types: [minor, patch]
       dev-tools:
         dependency-type: development

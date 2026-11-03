@@ -2,7 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-import pandas as pd
+import polars as pl
 
 
 @dataclass
@@ -25,7 +25,7 @@ class SequenceProcessor:
     def __init__(self, config: SequenceConfig) -> None:
         self.config = config
 
-    def _validate_data(self, df: pd.DataFrame) -> None:
+    def _validate_data(self, df: pl.DataFrame) -> None:
         required_columns = set(self.config.feature_columns) | set(self.config.target_columns)
         if self.config.group_by_column:
             required_columns.add(self.config.group_by_column)
@@ -36,9 +36,9 @@ class SequenceProcessor:
         if missing_columns:
             raise ValueError(f"Missing required columns: {missing_columns}")
 
-    def _process_group(self, group_data: pd.DataFrame) -> tuple[list[np.ndarray], list[np.ndarray]]:
-        feature_data = group_data[self.config.feature_columns].values
-        target_data = group_data[self.config.target_columns].values
+    def _process_group(self, group_data: pl.DataFrame) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        feature_data = group_data.select(self.config.feature_columns).to_numpy()
+        target_data = group_data.select(self.config.target_columns).to_numpy()
 
         sequences = []
         targets = []
@@ -61,25 +61,22 @@ class SequenceProcessor:
 
         return sequences, targets
 
-    def create_sequences(self, df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    def create_sequences(self, df: pl.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         """Creates sequences from the given dataframe."""
         self._validate_data(df)
 
+        # Groups come out in key order; rows keep their input order unless a sort column is set.
+        sort_columns = [column for column in (self.config.group_by_column, self.config.sort_by_column) if column]
+        if sort_columns:
+            df = df.sort(sort_columns, maintain_order=True)
+        groups = (
+            df.partition_by(self.config.group_by_column, maintain_order=True) if self.config.group_by_column else [df]
+        )
+
         all_sequences = []
         all_targets = []
-
-        if self.config.group_by_column:
-            if self.config.sort_by_column:
-                df = df.sort_values([self.config.group_by_column, self.config.sort_by_column])
-
-            for _, group_data in df.groupby(self.config.group_by_column):
-                sequences, targets = self._process_group(group_data)
-                all_sequences.extend(sequences)
-                all_targets.extend(targets)
-        else:
-            if self.config.sort_by_column:
-                df = df.sort_values(self.config.sort_by_column)
-            sequences, targets = self._process_group(df)
+        for group_data in groups:
+            sequences, targets = self._process_group(group_data)
             all_sequences.extend(sequences)
             all_targets.extend(targets)
 

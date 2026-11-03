@@ -2,6 +2,7 @@
 
 import json
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +12,7 @@ from tests.conftest import TORCH_AVAILABLE
 
 pytestmark = pytest.mark.skipif(not TORCH_AVAILABLE, reason="real torch is not installed")
 
-pd = pytest.importorskip("pandas", reason="the experiments dependency group is not installed")
+pl = pytest.importorskip("polars", reason="the experiments dependency group is not installed")
 
 if TORCH_AVAILABLE:
     from experiments.main import main
@@ -25,21 +26,22 @@ _TUNED_PARAMS = {"learning_rate": 0.01, "hidden_size": 8, "num_layers": 1, "drop
 def _write_trades_csv(path: Path, symbols: int = 2, days: int = 400) -> None:
     """Write a synthetic daily trades CSV; 400 days leaves the 10% validation and test splits a full sequence."""
     rng = np.random.default_rng(0)
+    start = datetime(2025, 1, 1, tzinfo=UTC)
     rows = []
     for symbol in range(symbols):
         prices = 100 + np.cumsum(rng.normal(0, 1, days))
-        for bucket, price in zip(pd.date_range("2025-01-01", periods=days, tz="UTC"), prices, strict=True):
+        for day, price in enumerate(prices.tolist()):
             rows.append(
                 {
                     "symbolId": f"symbol-{symbol}",
-                    "bucket": bucket.isoformat(),
+                    "bucket": (start + timedelta(days=day)).isoformat(),
                     "averagePrice": price,
                     "minPrice": price - 1,
                     "maxPrice": price + 1,
-                    "volume": rng.integers(1, 1000),
+                    "volume": int(rng.integers(1, 1000)),
                 }
             )
-    pd.DataFrame(rows).to_csv(path, index=False)
+    pl.DataFrame(rows).write_csv(path)
 
 
 @pytest.fixture
