@@ -1,3 +1,4 @@
+import argparse
 import json
 import logging
 import os
@@ -22,37 +23,83 @@ from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.inference.harness import TrainingHarness
 from ouranos_ml.shared.inference.model import Model
 
+_DEFAULT_DATA_PATH = "datasets/plutus.trades.training.daily.csv"
+_DEFAULT_SEED = 42
+_DEFAULT_EPOCHS = 1000
+
 
 class PlutusForecastingExperiment(BaseExperiment):
     """Experiment attempting to forecast financial markets using plutus data."""
 
     NAME: str = "plutus_forecasting"
 
-    def __init__(self, symbol_limit: int | None = None, retune: bool = True, show_plots: bool = False) -> None:
+    def __init__(
+        self,
+        data_path: str = _DEFAULT_DATA_PATH,
+        output_dir: str | None = None,
+        seed: int = _DEFAULT_SEED,
+        symbol_limit: int | None = None,
+        epochs: int = _DEFAULT_EPOCHS,
+        retune: bool = True,
+        show_plots: bool = False,
+    ) -> None:
         """Initializes the experiment.
 
         Args:
+            data_path: The daily trades CSV to train on.
+            output_dir: Where the model artifact is written. None uses ``MODELS_DIR/PLUTUS_FORECAST_MODEL_NAME``,
+                the directory the service loads from.
+            seed: Seeds Python, NumPy and torch.
             symbol_limit: Train on only the first N symbols, useful for quick development runs. None trains on every
                 symbol.
+            epochs: The maximum number of epochs to train the final model; early stopping usually ends it sooner.
             retune: Run the genetic tuner. When False, the params from the last tuning run (``tuned_params.json``)
                 are reused if present.
             show_plots: Display the prediction plot in a window after saving it. Blocks until the window is closed,
                 so leave it off for headless runs.
         """
+        self.data_path = data_path
+        self.output_dir = output_dir
+        self.seed = seed
         self.symbol_limit = symbol_limit
+        self.epochs = epochs
         self.retune = retune
         self.show_plots = show_plots
 
+    @classmethod
+    def add_arguments(cls, parser: argparse.ArgumentParser) -> None:
+        """Adds the experiment's CLI options."""
+        parser.add_argument(
+            "--data",
+            dest="data_path",
+            default=_DEFAULT_DATA_PATH,
+            help="daily trades CSV to train on (default: %(default)s)",
+        )
+        parser.add_argument(
+            "--output-dir", help="artifact directory (default: $MODELS_DIR/$PLUTUS_FORECAST_MODEL_NAME)"
+        )
+        parser.add_argument("--seed", type=int, default=_DEFAULT_SEED, help="random seed (default: %(default)s)")
+        parser.add_argument("--symbol-limit", type=int, help="train on only the first N symbols")
+        parser.add_argument(
+            "--epochs", type=int, default=_DEFAULT_EPOCHS, help="max epochs for the final model (default: %(default)s)"
+        )
+        parser.add_argument(
+            "--retune",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="run the genetic tuner; --no-retune reuses tuned_params.json (default: %(default)s)",
+        )
+        parser.add_argument("--show-plots", action="store_true", help="show the prediction plot after saving it")
+
     def run(self) -> None:
         """Main entry point for the plutus forecasting experiment."""
-        seed = 42
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-        logging.info("Starting the plutus forecasting experiment (seed=%s).", seed)
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        torch.manual_seed(self.seed)
+        logging.info("Starting the plutus forecasting experiment (seed=%s).", self.seed)
 
-        logging.info("Loading data...")
-        df = pd.read_csv("datasets/plutus.trades.training.daily.csv")
+        logging.info("Loading data from %s...", self.data_path)
+        df = pd.read_csv(self.data_path)
 
         if self.symbol_limit is not None:
             unique_symbols = df["symbolId"].unique()
@@ -63,7 +110,7 @@ class PlutusForecastingExperiment(BaseExperiment):
         train_df, val_df, test_df = split_by_bucket(df, bucket_field="bucket")
 
         settings = get_settings()
-        base_path = str(Path(settings.models_dir) / settings.plutus_forecast_model_name)
+        base_path = self.output_dir or str(Path(settings.models_dir) / settings.plutus_forecast_model_name)
         Path(base_path).mkdir(parents=True, exist_ok=True)
         features = ["averagePrice", "minPrice", "maxPrice", "volume"]
         prediction_horizon = 1
@@ -122,7 +169,7 @@ class PlutusForecastingExperiment(BaseExperiment):
 
         logging.info(f"Using params: {params}")
         harness = self._create_harness(x_train.shape[2], prediction_horizon, y_train.shape[2], params)
-        harness.train(train_loader, val_loader, epochs=1000, early_stopping=10)
+        harness.train(train_loader, val_loader, epochs=self.epochs, early_stopping=10)
 
         logging.info("Validating model...")
         test_loss = harness.validate(test_loader)
@@ -201,7 +248,7 @@ class PlutusForecastingExperiment(BaseExperiment):
         for i, ax in enumerate(axes):
             actual = y_test[:, :, i]
             pred = predictions[:, :, i]
-            mask = np.random.choice(actual.shape[0], sample, replace=False)
+            mask = np.random.choice(actual.shape[0], min(sample, actual.shape[0]), replace=False)
 
             ax.scatter(actual[mask], pred[mask], alpha=0.5)
 

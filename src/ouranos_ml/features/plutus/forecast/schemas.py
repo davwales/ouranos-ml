@@ -4,7 +4,8 @@ from ouranos_ml.shared.domain.core.base_schema import BaseSchema
 from ouranos_ml.shared.domain.plutus.forecast_point import PlutusForecastPoint
 from pydantic import Field
 
-MAX_FORECAST_SEQUENCES = 100
+# Pantheon batches up to 500 symbols per request (Plutus:Forecasting:BatchSize); keep headroom above that.
+MAX_FORECAST_SEQUENCES = 1000
 
 
 class ForecastRequest(BaseSchema):
