@@ -38,3 +38,5 @@ env/
 LICENSE
 Dockerfile
 compose.yml
+deploy/
+telemetry.env

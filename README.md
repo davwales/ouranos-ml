@@ -40,15 +40,35 @@ docker build -t ouranos-ml .
 docker run --gpus=all -d -p 8000:8000 ouranos-ml
 ```
 
-### Running the latest image
+### Local telemetry
 
-You can pull the latest image from the repository and run it using the following command.
+`compose.yml` runs a local Grafana stack (`grafana/otel-lgtm`: Loki, Tempo and Prometheus). `telemetry.env` points a source run at it:
 
 ```bash
-docker compose up -d
+podman compose up -d
+uv run --env-file telemetry.env opentelemetry-instrument ouranos_ml
 ```
 
-Every merge to `main` publishes `ghcr.io/davwales/ouranos-ml:latest` and `:sha-<short commit sha>`, and each release also publishes `:<version>` (see `CHANGELOG.md`). To roll back, point `compose.yml` at one of those tags.
+Grafana is at http://localhost:3001 (admin/admin), and logs are under `{app="Ouranos.Ml"}`. Plain `uv run dev` has no OpenTelemetry, but it still ships logs if you set `LOKI_BASE_URL=http://localhost:3100`.
+
+### Deployment
+
+Production runs the published image as a rootless Podman quadlet, `deploy/ouranos-ml.container`, which carries the production environment and GPU passthrough. Install it once on the host:
+
+```bash
+loginctl enable-linger                     # keep user services running without a login session
+mkdir -p ~/.config/containers/systemd
+cp deploy/ouranos-ml.container ~/.config/containers/systemd/
+systemctl --user daemon-reload
+systemctl --user start ouranos-ml
+systemctl --user enable --now podman-auto-update.timer
+```
+
+Every merge to `main` publishes `ghcr.io/davwales/ouranos-ml:latest` and `:sha-<short commit sha>`, and each release also publishes `:<version>` (see `CHANGELOG.md`). `podman-auto-update.timer` checks `:latest` daily, pulls a new image and restarts the service. If the new container doesn't pass `/health` within 5 minutes, it rolls back to the previous image. For more frequent checks, set `OnCalendar` with `systemctl --user edit podman-auto-update.timer`.
+
+- **Check:** `podman auto-update --dry-run`, then `journalctl --user -u ouranos-ml`.
+- **Roll back:** set `Image=` in the installed quadlet to a `:<version>` or `:sha-<sha>` tag, then run `systemctl --user daemon-reload && systemctl --user restart ouranos-ml`.
+- **Change config:** edit `deploy/ouranos-ml.container`, copy it again, then reload and restart.
 
 ### Endpoints
 
@@ -86,7 +106,7 @@ Settings are read from environment variables or a `.env` file in the working dir
 | `SWARMUI_DEFAULT_MODEL` | `flux-2-klein-9b` | Image model used when a request names none |
 | `SWARMUI_GENERATION_TIMEOUT_SECONDS` | `600.0` | Maximum time for one image generation request |
 
-OpenTelemetry tracing and metrics are configured with the standard `OTEL_*` environment variables and only apply when the app runs under `opentelemetry-instrument`, as the Docker image does. See `compose.yml` for the values used in production.
+OpenTelemetry tracing and metrics are configured with the standard `OTEL_*` environment variables and only apply when the app runs under `opentelemetry-instrument`, as the Docker image does. See `deploy/ouranos-ml.container` for the values used in production and `telemetry.env` for local ones.
 
 ### Running an experiment
 
