@@ -79,8 +79,9 @@ def test_plutus_forecasting_when_run_on_synthetic_data_should_write_a_loadable_m
     )
     generator = ForecastGenerator()
     point = PlutusForecastPoint(average_price=100, min_price=99, max_price=101, volume=500)
-    predictions = generator.predict_next([[point] * generator.sequence_length])
+    predictions = generator.forecast([[point] * generator.sequence_length], 2)
 
     # Assert
     assert {"model.pth", "params.json", "predictions.png"} <= {p.name for p in output_dir.iterdir()}
     assert len(predictions) == 1
+    assert len(predictions[0]) == 2
