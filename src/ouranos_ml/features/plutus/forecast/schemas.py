@@ -6,6 +6,7 @@ from pydantic import Field
 
 # Pantheon batches up to 500 symbols per request (Plutus:Forecasting:BatchSize); keep headroom above that.
 MAX_FORECAST_SEQUENCES = 1000
+MAX_NUM_PREDICTIONS = 500
 
 
 class ForecastRequest(BaseSchema):
@@ -14,4 +15,4 @@ class ForecastRequest(BaseSchema):
     points: list[Annotated[list[PlutusForecastPoint], Field(min_length=1)]] = Field(
         min_length=1, max_length=MAX_FORECAST_SEQUENCES
     )
-    num_predictions: int = Field(ge=1, le=500)
+    num_predictions: int = Field(ge=1, le=MAX_NUM_PREDICTIONS)

@@ -2,7 +2,6 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
-import numpy as np
 import structlog
 import torch
 
@@ -63,31 +62,52 @@ class ForecastGenerator:
         )
         self.harness = Harness(model)
         self.harness.load_model(str(model_path / "model.pth"))
+        self.harness.model.eval()
 
-    def predict_next(self, sequences: list[list[PlutusForecastPoint]]) -> list[PlutusForecastPoint]:
-        """Predicts the next point for multiple sequences based on historical data."""
-        if not all(len(seq) == self.sequence_length for seq in sequences):
-            invalid_lengths = [i for i, seq in enumerate(sequences) if len(seq) != self.sequence_length]
+    def forecast(
+        self, sequences: list[list[PlutusForecastPoint]], num_predictions: int
+    ) -> list[list[PlutusForecastPoint]]:
+        """Forecasts the next ``num_predictions`` points of each sequence."""
+        self._check_lengths(sequences)
+        windows = self._to_tensor(sequences)
+        predictions = self._roll(windows, num_predictions)
+        return [
+            [PlutusForecastPoint(**dict(zip(self.feature_fields, values, strict=True))) for values in sequence]
+            for sequence in predictions.tolist()
+        ]
+
+    def _check_lengths(self, sequences: list[list[PlutusForecastPoint]]) -> None:
+        """Raises a SequenceLengthError listing every sequence that isn't ``sequence_length`` points long."""
+        invalid_indices = [i for i, sequence in enumerate(sequences) if len(sequence) != self.sequence_length]
+        if invalid_indices:
             logger.warning(
                 "invalid forecast sequence lengths",
-                invalid_indices=invalid_lengths,
+                invalid_indices=invalid_indices,
                 expected_length=self.sequence_length,
             )
-            raise SequenceLengthError(invalid_lengths, self.sequence_length)
+            raise SequenceLengthError(invalid_indices, self.sequence_length)
 
-        batch_sequences = np.array(
-            [[[getattr(p, field) for field in self.feature_fields] for p in sequence] for sequence in sequences]
-        )
+    def _to_tensor(self, sequences: list[list[PlutusForecastPoint]]) -> torch.Tensor:
+        """Converts the sequences to a ``(batch, sequence_length, feature)`` tensor on the model's device."""
+        values = [[[getattr(point, field) for field in self.feature_fields] for point in seq] for seq in sequences]
+        # float64 keeps the denormalized values exact; the model itself runs in float32.
+        return torch.tensor(values, dtype=torch.float64, device=self.harness.device)
 
-        scales = np.maximum(np.max(batch_sequences, axis=1, keepdims=True), 1e-8)
-        normalized_sequences = batch_sequences / scales
-        predictions = self.harness.predict(torch.as_tensor(normalized_sequences, dtype=torch.float32))
-        denormalized_predictions = predictions[:, 0, :] * scales[:, 0, :]
+    def _roll(self, windows: torch.Tensor, num_predictions: int) -> torch.Tensor:
+        """Predicts one step at a time, sliding each prediction into its window.
 
-        return [
-            PlutusForecastPoint(**{field: float(value) for field, value in zip(self.feature_fields, pred, strict=True)})
-            for pred in denormalized_predictions
-        ]
+        Every step is one forward pass over the whole batch. Windows are max-scaled per sequence and feature before
+        each step, matching the experiment's ``sequence_transform``. Only the first step of the model's horizon is used.
+        """
+        batch_size, _, feature_count = windows.shape
+        predictions = windows.new_empty((batch_size, num_predictions, feature_count))
+        with torch.inference_mode():
+            for step in range(num_predictions):
+                scales = windows.amax(dim=1, keepdim=True).clamp_min(1e-8)
+                next_points = self.harness.model((windows / scales).float())[:, :1, :] * scales
+                predictions[:, step] = next_points[:, 0]
+                windows = torch.cat((windows[:, 1:], next_points), dim=1)
+        return predictions.cpu()
 
 
 @lru_cache
@@ -110,20 +130,11 @@ def forecast_points(
     logger.info("forecast requested", sequence_count=len(sequences), num_predictions=num_predictions)
     attributes = {"plutus.sequence_count": len(sequences), "plutus.num_predictions": num_predictions}
     with start_operation("plutus.forecast", attributes=attributes):
-        generator = get_forecast_generator()
-        all_predictions: list[list[PlutusForecastPoint]] = [[] for _ in sequences]
-        current_sequences = [seq.copy() for seq in sequences]
-
-        for _ in range(num_predictions):
-            next_points = generator.predict_next(current_sequences)
-            for i, (next_point, sequence) in enumerate(zip(next_points, current_sequences, strict=True)):
-                sequence.append(next_point)
-                sequence.pop(0)
-                all_predictions[i].append(next_point)
+        predictions = get_forecast_generator().forecast(sequences, num_predictions)
 
     logger.debug(
         "forecast complete",
         sequence_count=len(sequences),
         prediction_count=len(sequences) * num_predictions,
     )
-    return all_predictions
+    return predictions
