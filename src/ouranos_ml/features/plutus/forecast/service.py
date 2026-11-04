@@ -1,10 +1,15 @@
+import copy
 import json
+from collections.abc import Generator
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
 
+import numpy as np
 import structlog
 import torch
 
+from ouranos_ml.features.plutus.forecast.schemas import MAX_FORECAST_SEQUENCES, ForecastBand
 from ouranos_ml.shared.domain.core.settings import get_settings
 from ouranos_ml.shared.domain.plutus.forecast_point import PlutusForecastPoint
 from ouranos_ml.shared.inference.harness import Harness
@@ -15,6 +20,7 @@ logger = structlog.get_logger(__name__)
 
 _DEFAULT_FEATURE_FIELDS = ["average_price", "min_price", "max_price", "volume"]
 _DEFAULT_SEQUENCE_LENGTH = 30
+_BAND_QUANTILES = (0.1, 0.5, 0.9)
 
 
 class SequenceLengthError(ValueError):
@@ -63,17 +69,36 @@ class ForecastGenerator:
         self.harness = Harness(model)
         self.harness.load_model(str(model_path / "model.pth"))
         self.harness.model.eval()
+        # Monte Carlo dropout: a copy left in training mode keeps dropout active (the model has no batch norm). It is a
+        # copy because switching the shared model's mode would leak into concurrent requests.
+        self._sampling_model = copy.deepcopy(self.harness.model).train()
 
     def forecast(
         self, sequences: list[list[PlutusForecastPoint]], num_predictions: int
     ) -> list[list[PlutusForecastPoint]]:
         """Forecasts the next ``num_predictions`` points of each sequence."""
         self._check_lengths(sequences)
-        windows = self._to_tensor(sequences)
-        predictions = self._roll(windows, num_predictions)
+        predictions = self._roll(self.harness.model, self._to_tensor(sequences), num_predictions)
+        return self._to_points(predictions.numpy())
+
+    def forecast_bands(
+        self, sequences: list[list[PlutusForecastPoint]], num_predictions: int, samples: int
+    ) -> list[list[ForecastBand]]:
+        """Forecasts p10/p50/p90 bands for each sequence from ``samples`` Monte Carlo dropout trajectories."""
+        self._check_lengths(sequences)
+        windows = self._to_tensor(sequences).repeat(samples, 1, 1)
+        # Chunked so GPU memory is bounded by the chunk size, however many samples are drawn. repeat() is sample-major,
+        # so the trajectories reshape to (samples, sequences, num_predictions, feature).
+        trajectories = torch.cat(
+            [
+                self._roll(self._sampling_model, chunk, num_predictions)
+                for chunk in windows.split(MAX_FORECAST_SEQUENCES)
+            ]
+        ).view(samples, len(sequences), num_predictions, -1)
+        lower, median, upper = (self._to_points(q) for q in np.quantile(trajectories.numpy(), _BAND_QUANTILES, axis=0))
         return [
-            [PlutusForecastPoint(**dict(zip(self.feature_fields, values, strict=True))) for values in sequence]
-            for sequence in predictions.tolist()
+            [ForecastBand(lower=low, median=mid, upper=high) for low, mid, high in zip(*bands, strict=True)]
+            for bands in zip(lower, median, upper, strict=True)
         ]
 
     def _check_lengths(self, sequences: list[list[PlutusForecastPoint]]) -> None:
@@ -93,7 +118,15 @@ class ForecastGenerator:
         # float64 keeps the denormalized values exact; the model itself runs in float32.
         return torch.tensor(values, dtype=torch.float64, device=self.harness.device)
 
-    def _roll(self, windows: torch.Tensor, num_predictions: int) -> torch.Tensor:
+    def _to_points(self, predictions: np.ndarray) -> list[list[PlutusForecastPoint]]:
+        """Maps a ``(batch, num_predictions, feature)`` array back to points by ``feature_fields``."""
+        return [
+            [PlutusForecastPoint(**dict(zip(self.feature_fields, values, strict=True))) for values in sequence]
+            for sequence in predictions.tolist()
+        ]
+
+    @staticmethod
+    def _roll(model: torch.nn.Module, windows: torch.Tensor, num_predictions: int) -> torch.Tensor:
         """Predicts one step at a time, sliding each prediction into its window.
 
         Every step is one forward pass over the whole batch. Windows are max-scaled per sequence and feature before
@@ -104,7 +137,7 @@ class ForecastGenerator:
         with torch.inference_mode():
             for step in range(num_predictions):
                 scales = windows.amax(dim=1, keepdim=True).clamp_min(1e-8)
-                next_points = self.harness.model((windows / scales).float())[:, :1, :] * scales
+                next_points = model((windows / scales).float())[:, :1, :] * scales
                 predictions[:, step] = next_points[:, 0]
                 windows = torch.cat((windows[:, 1:], next_points), dim=1)
         return predictions.cpu()
@@ -127,14 +160,32 @@ def forecast_points(
     sequences: list[list[PlutusForecastPoint]], num_predictions: int
 ) -> list[list[PlutusForecastPoint]]:
     """Forecast future points for multiple sequences based on historical data."""
-    logger.info("forecast requested", sequence_count=len(sequences), num_predictions=num_predictions)
+    with _forecast_operation(sequences, num_predictions):
+        return get_forecast_generator().forecast(sequences, num_predictions)
+
+
+def forecast_bands(
+    sequences: list[list[PlutusForecastPoint]], num_predictions: int, samples: int
+) -> list[list[ForecastBand]]:
+    """Forecast p10/p50/p90 bands for multiple sequences based on historical data."""
+    with _forecast_operation(sequences, num_predictions, samples):
+        return get_forecast_generator().forecast_bands(sequences, num_predictions, samples)
+
+
+@contextmanager
+def _forecast_operation(
+    sequences: list[list[PlutusForecastPoint]], num_predictions: int, samples: int | None = None
+) -> Generator[None]:
+    """Log and trace one forecast request."""
+    logger.info("forecast requested", sequence_count=len(sequences), num_predictions=num_predictions, samples=samples)
     attributes = {"plutus.sequence_count": len(sequences), "plutus.num_predictions": num_predictions}
+    if samples is not None:
+        attributes["plutus.samples"] = samples
     with start_operation("plutus.forecast", attributes=attributes):
-        predictions = get_forecast_generator().forecast(sequences, num_predictions)
+        yield
 
     logger.debug(
         "forecast complete",
         sequence_count=len(sequences),
         prediction_count=len(sequences) * num_predictions,
     )
-    return predictions

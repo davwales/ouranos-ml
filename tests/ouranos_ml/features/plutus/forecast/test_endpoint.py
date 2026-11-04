@@ -3,10 +3,10 @@ from unittest.mock import patch
 import pytest
 from fastapi import FastAPI
 
-from ouranos_ml.features.plutus.forecast.schemas import MAX_FORECAST_SEQUENCES
+from ouranos_ml.features.plutus.forecast.schemas import MAX_FORECAST_SEQUENCES, MAX_SAMPLED_SEQUENCES
 from ouranos_ml.features.plutus.forecast.service import ForecastGenerator
 from ouranos_ml.features.plutus.router import plutus_router
-from tests.ouranos_ml.shared.factories.forecast_factories import make_forecast_point, make_sequence
+from tests.ouranos_ml.shared.factories.forecast_factories import make_forecast_band, make_forecast_point, make_sequence
 
 
 @pytest.fixture
@@ -197,3 +197,65 @@ async def test_forecast_endpoint_when_points_empty_should_return_422(async_clien
     # Assert
     assert response.status_code == 422
     assert response.json()["detail"][0]["type"] == "too_short"
+
+
+@pytest.mark.asyncio
+async def test_forecast_endpoint_when_samples_set_should_return_bands(async_client):
+    # Arrange
+    payload = {**_payload(1), "samples": 20}
+
+    # Act
+    with (
+        patch("ouranos_ml.features.plutus.forecast.endpoint.forecast_bands") as mock_bands,
+        patch("ouranos_ml.features.plutus.forecast.endpoint.forecast_points") as mock_points,
+    ):
+        mock_bands.return_value = [[make_forecast_band(median_price=10.0)]]
+        response = await async_client.post("/plutus/forecast", json=payload)
+
+    # Assert
+    assert response.status_code == 200
+    band = response.json()[0][0]
+    assert set(band) == {"lower", "median", "upper"}
+    assert band["median"]["average_price"] == 10.0
+    assert mock_bands.call_args.args[1:] == (1, 20)
+    mock_points.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_forecast_endpoint_when_samples_omitted_should_return_points(async_client):
+    # Arrange
+    payload = _payload(1)
+
+    # Act
+    with (
+        patch("ouranos_ml.features.plutus.forecast.endpoint.forecast_bands") as mock_bands,
+        patch("ouranos_ml.features.plutus.forecast.endpoint.forecast_points") as mock_points,
+    ):
+        mock_points.return_value = [[make_forecast_point(average_price=10.0)]]
+        response = await async_client.post("/plutus/forecast", json=payload)
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json() == [[make_forecast_point(average_price=10.0).model_dump(by_alias=True)]]
+    mock_bands.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_forecast_endpoint_when_sampled_sequences_exceed_max_should_return_422(async_client):
+    # Arrange
+    payload = {
+        "points": [_sequence_payload(30)] * (MAX_SAMPLED_SEQUENCES // 100 + 1),
+        "numPredictions": 1,
+        "samples": 100,
+    }
+
+    # Act
+    with patch("ouranos_ml.features.plutus.forecast.endpoint.forecast_bands") as mock_bands:
+        response = await async_client.post("/plutus/forecast", json=payload)
+
+    # Assert
+    assert response.status_code == 422
+    (error,) = response.json()["detail"]
+    assert error["loc"] == ["body", "samples"]
+    assert error["input"] == 100
+    mock_bands.assert_not_called()

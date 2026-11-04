@@ -62,7 +62,7 @@ Every merge to `main` publishes `ghcr.io/davwales/ouranos-ml:latest` and `:sha-<
 | POST | `/images/edits` | Edits an image (img2img), or only a masked area (inpainting), through SwarmUI |
 | GET | `/images/models` | Lists the SwarmUI image models and their defaults |
 | GET | `/images/loras` | Lists the SwarmUI LoRAs that image requests can apply |
-| POST | `/plutus/forecast` | Forecasts prices from 30-point historical sequences |
+| POST | `/plutus/forecast` | Forecasts prices from 30-point historical sequences, optionally as p10/p50/p90 bands (`samples`) |
 | GET | `/health` | Reports the health of the service and its backends |
 
 ### Configuration

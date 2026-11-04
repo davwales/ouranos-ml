@@ -1,8 +1,9 @@
 import pytest
 
-from ouranos_ml.features.plutus.forecast.schemas import MAX_FORECAST_SEQUENCES, ForecastRequest
+from ouranos_ml.features.plutus.forecast.schemas import MAX_FORECAST_SEQUENCES, MAX_SAMPLED_SEQUENCES, ForecastRequest
 from pydantic import ValidationError
 from tests.ouranos_ml.shared.factories.forecast_factories import (
+    make_forecast_band,
     make_forecast_point,
     make_forecast_request,
     make_sequence,
@@ -99,3 +100,50 @@ def test_forecast_request_when_points_exceed_max_should_raise_validation_error()
     # Act & Assert
     with pytest.raises(ValidationError, match="too_long"):
         ForecastRequest(points=points, num_predictions=3)
+
+
+def test_forecast_request_when_samples_omitted_should_default_to_none():
+    # Act
+    request = make_forecast_request()
+
+    # Assert
+    assert request.samples is None
+
+
+@pytest.mark.parametrize("samples", [0, 1, 101])
+def test_forecast_request_when_samples_out_of_range_should_raise_validation_error(samples):
+    # Act & Assert
+    with pytest.raises(ValidationError):
+        make_forecast_request(samples=samples)
+
+
+def test_forecast_request_when_sampled_sequences_at_max_should_accept():
+    # Arrange
+    points = [make_sequence(30)] * (MAX_SAMPLED_SEQUENCES // 100)
+
+    # Act
+    request = make_forecast_request(points=points, samples=100)
+
+    # Assert
+    assert request.samples == 100
+
+
+def test_forecast_request_when_sampled_sequences_exceed_max_should_raise_validation_error():
+    # Arrange
+    points = [make_sequence(30)] * (MAX_SAMPLED_SEQUENCES // 100 + 1)
+
+    # Act & Assert
+    with pytest.raises(ValidationError, match="samples × number of sequences must be at most 10000"):
+        make_forecast_request(points=points, samples=100)
+
+
+def test_forecast_band_when_serialized_should_nest_snake_case_points():
+    # Arrange
+    band = make_forecast_band(median_price=10.0)
+
+    # Act
+    data = band.model_dump(by_alias=True)
+
+    # Assert
+    assert set(data) == {"lower", "median", "upper"}
+    assert data["median"]["average_price"] == 10.0
