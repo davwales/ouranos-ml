@@ -1,17 +1,17 @@
 from typing import Any
 
-from pandas import DataFrame
+import polars as pl
 
 
 def split_by_bucket(
-    df: DataFrame, bucket_field: str, val_ratio: float = 0.1, test_ratio: float = 0.1
-) -> tuple[DataFrame, DataFrame, DataFrame]:
+    df: pl.DataFrame, bucket_field: str, val_ratio: float = 0.1, test_ratio: float = 0.1
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """Splits a DataFrame into training, validation, and testing sets.
 
     Datapoints are first grouped and sorted by the specified bucket field and then
     all datapoints within a specified bucket are assigned to a specific split.
     """
-    unique_buckets: list[Any] = sorted(df[bucket_field].unique())
+    unique_buckets: list[Any] = df[bucket_field].unique().sort().to_list()
     n_buckets = len(unique_buckets)
 
     # Calculate split indices
@@ -23,9 +23,9 @@ def split_by_bucket(
     val_buckets = unique_buckets[val_idx:test_idx]
     test_buckets = unique_buckets[test_idx:]
 
-    # Create masks
-    train_mask: DataFrame = df[bucket_field].isin(train_buckets)
-    val_mask: DataFrame = df[bucket_field].isin(val_buckets)
-    test_mask: DataFrame = df[bucket_field].isin(test_buckets)
-
-    return df[train_mask], df[val_mask], df[test_mask]
+    bucket = pl.col(bucket_field)
+    return (
+        df.filter(bucket.is_in(train_buckets)),
+        df.filter(bucket.is_in(val_buckets)),
+        df.filter(bucket.is_in(test_buckets)),
+    )

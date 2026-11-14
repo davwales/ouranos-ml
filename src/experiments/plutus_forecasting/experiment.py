@@ -9,7 +9,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
+import polars as pl
 import torch
 from matplotlib.figure import Figure
 from sklearn.metrics import r2_score
@@ -99,11 +99,12 @@ class PlutusForecastingExperiment(BaseExperiment):
         logging.info("Starting the plutus forecasting experiment (seed=%s).", self.seed)
 
         logging.info("Loading data from %s...", self.data_path)
-        df = pd.read_csv(self.data_path)
+        # Infer types from every row, so a float late in an int-looking column doesn't fail the load.
+        df = pl.read_csv(self.data_path, infer_schema_length=None)
 
         if self.symbol_limit is not None:
-            unique_symbols = df["symbolId"].unique()
-            df = df[df["symbolId"].isin(unique_symbols[: self.symbol_limit])]
+            unique_symbols = df["symbolId"].unique(maintain_order=True)
+            df = df.filter(pl.col("symbolId").is_in(unique_symbols.head(self.symbol_limit).to_list()))
             logging.info("Limited data to the first %s of %s symbols.", self.symbol_limit, len(unique_symbols))
 
         logging.info("Splitting data...")
